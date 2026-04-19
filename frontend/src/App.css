@@ -1,0 +1,112 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: sans-serif;
+}
+
+/* 🔥 FULL BACKGROUND FIX */
+body {
+  background: #0B093B;
+}
+
+.container {
+  min-height: 100vh;
+  width: 100%;
+  background: #0B093B;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* LOGIN CARD */
+.login-box {
+  background: #000000;
+  padding: 40px 35px;
+  border-radius: 14px;
+  width: 360px;
+  text-align: center;
+  color: white;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+}
+
+/* TITLE */
+.login-box h1 {
+  margin-bottom: 30px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+/* LABEL */
+.login-box label {
+  display: block;
+  text-align: left;
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: #bfbfbf;
+}
+
+/* INPUT */
+.login-box input {
+  width: 100%;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  margin-bottom: 20px;
+  outline: none;
+  background: #111;
+  color: white;
+}
+
+.login-box input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* BUTTON */
+.login-box button {
+  width: 100%;
+  padding: 13px;
+  background: linear-gradient(135deg, #6741BF, #7c5cff);
+  border: none;
+  border-radius: 25px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.login-box button:hover {
+  transform: scale(1.03);
+  opacity: 0.95;
+}
+
+/* 🔥 NICE DIVIDER */
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 25px 0;
+  color: #aaa;
+  font-size: 12px;
+}
+
+.divider span {
+  flex: 1;
+  height: 1px;
+  background: #333;
+}
+
+.divider p {
+  margin: 0 10px;
+}
+
+/* REGISTER */
+.register {
+  color: #7c5cff;
+  cursor: pointer;
+  font-size: 14px;
+  transition: 0.2s;
+}
+
+.register:hover {
+  text-decoration: underline;
+}
