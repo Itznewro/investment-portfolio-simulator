@@ -51,9 +51,30 @@ function DashboardPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const holdings = portfolioData?.holdings || [];
+  const ownedStocks = holdings.map((holding) => ({
+    symbol: holding.stock_symbol,
+    description: `Owned: ${Number(holding.quantity).toFixed(4)} shares`,
+    ownedQuantity: Number(holding.quantity),
+  }));
+
   useEffect(() => {
     const fetchSearchResults = async () => {
-      if (!stockSymbol.trim() || selectedStock?.symbol === stockSymbol.trim().toUpperCase()) {
+      if (!stockSymbol.trim()) {
+        setSearchResults([]);
+        return;
+      }
+
+      if (tradeType === "SELL") {
+        const filteredHoldings = ownedStocks.filter((item) =>
+          item.symbol.toLowerCase().includes(stockSymbol.toLowerCase())
+        );
+        setSearchResults(filteredHoldings);
+        setShowDropdown(true);
+        return;
+      }
+
+      if (selectedStock?.symbol === stockSymbol.trim().toUpperCase()) {
         setSearchResults([]);
         return;
       }
@@ -81,10 +102,10 @@ function DashboardPage() {
 
     const delay = setTimeout(() => {
       fetchSearchResults();
-    }, 400);
+    }, 300);
 
     return () => clearTimeout(delay);
-  }, [stockSymbol, selectedStock]);
+  }, [stockSymbol, selectedStock, tradeType, portfolioData]);
 
   const fetchQuote = async (symbol) => {
     try {
@@ -123,7 +144,6 @@ function DashboardPage() {
     ? Number(portfolioData.portfolio.cashBalance)
     : 0;
 
-  const holdings = portfolioData?.holdings || [];
   const transactions = portfolioData?.transactions || [];
   const assetsHeld = holdings.length;
   const portfolioValue = cashBalance;
@@ -136,16 +156,41 @@ function DashboardPage() {
   const fee = subtotal * 0.005;
   const total = tradeType === "BUY" ? subtotal + fee : subtotal - fee;
 
+  const selectedHolding =
+    tradeType === "SELL"
+      ? holdings.find((h) => h.stock_symbol === selectedStock?.symbol)
+      : null;
+
+  const maxSellQuantity = selectedHolding
+    ? Number(selectedHolding.quantity)
+    : 0;
+
   const orderMessage = useMemo(() => {
-    if (!stockSymbol.trim()) return "Search and select a stock symbol.";
+    if (!stockSymbol.trim()) {
+      return tradeType === "BUY"
+        ? "Search and select a stock symbol."
+        : "Select a stock from your holdings.";
+    }
     if (!stockPrice) return "Waiting for live stock price.";
     if (!parsedQuantity && !parsedAmount)
       return "Enter quantity or amount to preview the order.";
     if (tradeType === "BUY" && total > cashBalance) {
       return "Insufficient balance for this order.";
     }
+    if (tradeType === "SELL" && parsedQuantity > maxSellQuantity) {
+      return `You only own ${maxSellQuantity.toFixed(4)} shares.`;
+    }
     return `${tradeType} order preview ready.`;
-  }, [stockSymbol, stockPrice, parsedQuantity, parsedAmount, tradeType, total, cashBalance]);
+  }, [
+    stockSymbol,
+    stockPrice,
+    parsedQuantity,
+    parsedAmount,
+    tradeType,
+    total,
+    cashBalance,
+    maxSellQuantity,
+  ]);
 
   const handleQuantityChange = (e) => {
     const value = e.target.value;
@@ -176,57 +221,62 @@ function DashboardPage() {
   };
 
   const handlePreviewOrder = async () => {
-  if (!selectedStock || !stockPrice || (!quantity && !amount)) {
-    alert("Please select a stock and enter quantity or amount.");
-    return;
-  }
-
-  try {
-    const endpoint =
-      tradeType === "BUY" ? "/api/trade/buy" : "/api/trade/sell";
-
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        userId: user.id,
-        stockSymbol: selectedStock.symbol,
-        quantity: Number(quantity),
-        pricePerShare: Number(stockPrice),
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      alert(data.message || `${tradeType} failed`);
+    if (!selectedStock || !stockPrice || (!quantity && !amount)) {
+      alert("Please select a stock and enter quantity or amount.");
       return;
     }
 
-    alert(
-      tradeType === "BUY"
-        ? "Stock purchased successfully!"
-        : "Stock sold successfully!"
-    );
+    if (tradeType === "SELL" && Number(quantity) > maxSellQuantity) {
+      alert(`You only own ${maxSellQuantity.toFixed(4)} shares.`);
+      return;
+    }
 
-    const refreshed = await fetch(`/api/portfolio/${user.id}`);
-    const refreshedData = await refreshed.json();
-    setPortfolioData(refreshedData);
+    try {
+      const endpoint =
+        tradeType === "BUY" ? "/api/trade/buy" : "/api/trade/sell";
 
-    setStockSymbol("");
-    setSelectedStock(null);
-    setStockPrice(0);
-    setQuantity("");
-    setAmount("");
-    setSearchResults([]);
-    setShowDropdown(false);
-  } catch (error) {
-    console.error(error);
-    alert("Could not connect to server.");
-  }
-};
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          stockSymbol: selectedStock.symbol,
+          quantity: Number(quantity),
+          pricePerShare: Number(stockPrice),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(data.message || `${tradeType} failed`);
+        return;
+      }
+
+      alert(
+        tradeType === "BUY"
+          ? "Stock purchased successfully!"
+          : "Stock sold successfully!"
+      );
+
+      const refreshed = await fetch(`/api/portfolio/${user.id}`);
+      const refreshedData = await refreshed.json();
+      setPortfolioData(refreshedData);
+
+      setStockSymbol("");
+      setSelectedStock(null);
+      setStockPrice(0);
+      setQuantity("");
+      setAmount("");
+      setSearchResults([]);
+      setShowDropdown(false);
+    } catch (error) {
+      console.error(error);
+      alert("Could not connect to server.");
+    }
+  };
 
   return (
     <div className="dashboard-page">
@@ -374,13 +424,31 @@ function DashboardPage() {
               <div className="trade-toggle">
                 <button
                   className={`trade-tab ${tradeType === "BUY" ? "active" : ""}`}
-                  onClick={() => setTradeType("BUY")}
+                  onClick={() => {
+                    setTradeType("BUY");
+                    setStockSymbol("");
+                    setSelectedStock(null);
+                    setStockPrice(0);
+                    setQuantity("");
+                    setAmount("");
+                    setSearchResults([]);
+                    setShowDropdown(false);
+                  }}
                 >
                   Buy
                 </button>
                 <button
                   className={`trade-tab ${tradeType === "SELL" ? "active" : ""}`}
-                  onClick={() => setTradeType("SELL")}
+                  onClick={() => {
+                    setTradeType("SELL");
+                    setStockSymbol("");
+                    setSelectedStock(null);
+                    setStockPrice(0);
+                    setQuantity("");
+                    setAmount("");
+                    setSearchResults([]);
+                    setShowDropdown(false);
+                  }}
                 >
                   Sell
                 </button>
@@ -399,11 +467,17 @@ function DashboardPage() {
               </div>
 
               <div className="trade-section trade-search-wrapper" ref={searchBoxRef}>
-                <label className="trade-label">Stock</label>
+                <label className="trade-label">
+                  {tradeType === "BUY" ? "Stock" : "Your Holdings"}
+                </label>
                 <input
                   className="trade-input"
                   type="text"
-                  placeholder="Search stock symbol (e.g. AAPL)"
+                  placeholder={
+                    tradeType === "BUY"
+                      ? "Search stock symbol (e.g. AAPL)"
+                      : "Search your owned stocks"
+                  }
                   value={stockSymbol}
                   onChange={(e) => {
                     setStockSymbol(e.target.value);
@@ -411,17 +485,28 @@ function DashboardPage() {
                     setStockPrice(0);
                   }}
                   onFocus={() => {
-                    if (searchResults.length > 0) setShowDropdown(true);
+                    if (tradeType === "SELL") {
+                      setSearchResults(ownedStocks);
+                      setShowDropdown(true);
+                    } else if (searchResults.length > 0) {
+                      setShowDropdown(true);
+                    }
                   }}
                 />
 
-                {searchLoading && (
+                {searchLoading && tradeType === "BUY" && (
                   <p className="trade-hint">Searching stocks...</p>
                 )}
 
                 {!searchLoading && selectedStock && (
                   <p className="trade-hint">
                     Selected: {selectedStock.symbol} - {selectedStock.description}
+                  </p>
+                )}
+
+                {tradeType === "SELL" && selectedHolding && (
+                  <p className="trade-hint">
+                    You own {maxSellQuantity.toFixed(4)} shares
                   </p>
                 )}
 
@@ -497,22 +582,22 @@ function DashboardPage() {
 
               <p className="trade-status">{orderMessage}</p>
 
-<button
-  className="trade-submit-btn"
-  disabled={!stockPrice || (!parsedQuantity && !parsedAmount)}
-  onClick={handlePreviewOrder}
->
-  Preview {tradeType} Order
-</button>
+              <button
+                className="trade-submit-btn"
+                disabled={!stockPrice || (!parsedQuantity && !parsedAmount)}
+                onClick={handlePreviewOrder}
+              >
+                Preview {tradeType} Order
+              </button>
             </div>
 
             <div className="panel right-panel thin">
               <h3>Order Notes</h3>
               <div className="order-notes">
                 <p>• Search for a stock by symbol</p>
+                <p>• In Sell mode, only your owned stocks appear</p>
                 <p>• Enter quantity or amount to preview order value</p>
                 <p>• A trading fee will be applied</p>
-                <p>• Live prices and backend order execution come next</p>
               </div>
             </div>
           </div>
