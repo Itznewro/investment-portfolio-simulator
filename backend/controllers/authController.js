@@ -22,14 +22,21 @@ const registerUser = async (req, res) => {
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    const newUser = await pool.query(
+    const newUserResult = await pool.query(
       "INSERT INTO users (full_name, email, password_hash) VALUES ($1, $2, $3) RETURNING id, full_name, email",
       [fullName, email, hashedPassword]
     );
 
+    const newUser = newUserResult.rows[0];
+
+    await pool.query(
+      "INSERT INTO portfolios (user_id, cash_balance) VALUES ($1, $2)",
+      [newUser.id, 100000.00]
+    );
+
     res.status(201).json({
       message: "User registered successfully",
-      user: newUser.rows[0],
+      user: newUser,
     });
   } catch (error) {
     console.error("Register error:", error);
