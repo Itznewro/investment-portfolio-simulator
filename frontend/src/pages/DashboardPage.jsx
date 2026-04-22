@@ -1,6 +1,6 @@
 import "../App.css";
 import logo from "../assets/logo.png";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 function DashboardPage() {
   const user = JSON.parse(localStorage.getItem("user"));
@@ -10,7 +10,17 @@ function DashboardPage() {
 
   const [tradeType, setTradeType] = useState("BUY");
   const [stockSymbol, setStockSymbol] = useState("");
+  const [selectedStock, setSelectedStock] = useState(null);
   const [quantity, setQuantity] = useState("");
+  const [amount, setAmount] = useState("");
+
+  const [searchResults, setSearchResults] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [stockPrice, setStockPrice] = useState(0);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [priceLoading, setPriceLoading] = useState(false);
+
+  const searchBoxRef = useRef(null);
 
   useEffect(() => {
     const fetchPortfolio = async () => {
@@ -30,6 +40,85 @@ function DashboardPage() {
     }
   }, [user?.id]);
 
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(event.target)) {
+        setShowDropdown(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const fetchSearchResults = async () => {
+      if (!stockSymbol.trim() || selectedStock?.symbol === stockSymbol.trim().toUpperCase()) {
+        setSearchResults([]);
+        return;
+      }
+
+      try {
+        setSearchLoading(true);
+        const response = await fetch(
+          `/api/stocks/search?q=${encodeURIComponent(stockSymbol)}`
+        );
+        const data = await response.json();
+
+        const filtered = Array.isArray(data)
+          ? data.filter((item) => item.symbol && item.description)
+          : [];
+
+        setSearchResults(filtered);
+        setShowDropdown(true);
+      } catch (error) {
+        console.error("Search error:", error);
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    };
+
+    const delay = setTimeout(() => {
+      fetchSearchResults();
+    }, 400);
+
+    return () => clearTimeout(delay);
+  }, [stockSymbol, selectedStock]);
+
+  const fetchQuote = async (symbol) => {
+    try {
+      setPriceLoading(true);
+      const response = await fetch(`/api/stocks/quote/${symbol}`);
+      const data = await response.json();
+
+      const livePrice = Number(data.c) || 0;
+      setStockPrice(livePrice);
+
+      if (quantity) {
+        const recalculatedAmount = Number(quantity) * livePrice;
+        setAmount(recalculatedAmount > 0 ? recalculatedAmount.toFixed(2) : "");
+      } else if (amount) {
+        const recalculatedQuantity = Number(amount) / livePrice;
+        setQuantity(
+          recalculatedQuantity > 0 ? recalculatedQuantity.toFixed(4) : ""
+        );
+      }
+    } catch (error) {
+      console.error("Quote error:", error);
+      setStockPrice(0);
+    } finally {
+      setPriceLoading(false);
+    }
+  };
+
+  const handleSelectStock = (stock) => {
+    setSelectedStock(stock);
+    setStockSymbol(stock.symbol);
+    setShowDropdown(false);
+    fetchQuote(stock.symbol);
+  };
+
   const cashBalance = portfolioData?.portfolio?.cashBalance
     ? Number(portfolioData.portfolio.cashBalance)
     : 0;
@@ -40,32 +129,104 @@ function DashboardPage() {
   const portfolioValue = cashBalance;
   const todaysGain = 0;
 
-  const mockStockPrices = {
-    AAPL: 212.45,
-    TSLA: 171.88,
-    MSFT: 428.12,
-    NVDA: 118.76,
-    AMZN: 182.21,
-    GOOGL: 167.34,
-    META: 503.11,
-  };
-
-  const normalizedSymbol = stockSymbol.trim().toUpperCase();
-  const selectedPrice = mockStockPrices[normalizedSymbol] || 0;
   const parsedQuantity = Number(quantity) || 0;
-  const subtotal = selectedPrice * parsedQuantity;
+  const parsedAmount = Number(amount) || 0;
+
+  const subtotal = parsedAmount > 0 ? parsedAmount : stockPrice * parsedQuantity;
   const fee = subtotal * 0.005;
   const total = tradeType === "BUY" ? subtotal + fee : subtotal - fee;
 
   const orderMessage = useMemo(() => {
-    if (!normalizedSymbol) return "Search and select a stock symbol.";
-    if (!selectedPrice) return "Stock not found in sample list yet.";
-    if (!parsedQuantity) return "Enter a quantity to preview the order.";
+    if (!stockSymbol.trim()) return "Search and select a stock symbol.";
+    if (!stockPrice) return "Waiting for live stock price.";
+    if (!parsedQuantity && !parsedAmount)
+      return "Enter quantity or amount to preview the order.";
     if (tradeType === "BUY" && total > cashBalance) {
       return "Insufficient balance for this order.";
     }
     return `${tradeType} order preview ready.`;
-  }, [normalizedSymbol, selectedPrice, parsedQuantity, tradeType, total, cashBalance]);
+  }, [stockSymbol, stockPrice, parsedQuantity, parsedAmount, tradeType, total, cashBalance]);
+
+  const handleQuantityChange = (e) => {
+    const value = e.target.value;
+    setQuantity(value);
+
+    const numericValue = Number(value);
+    if (!value || numericValue <= 0 || !stockPrice) {
+      setAmount("");
+      return;
+    }
+
+    const calculatedAmount = numericValue * stockPrice;
+    setAmount(calculatedAmount.toFixed(2));
+  };
+
+  const handleAmountChange = (e) => {
+    const value = e.target.value;
+    setAmount(value);
+
+    const numericValue = Number(value);
+    if (!value || numericValue <= 0 || !stockPrice) {
+      setQuantity("");
+      return;
+    }
+
+    const calculatedQuantity = numericValue / stockPrice;
+    setQuantity(calculatedQuantity.toFixed(4));
+  };
+
+  const handlePreviewOrder = async () => {
+  if (!selectedStock || !stockPrice || (!quantity && !amount)) {
+    alert("Please select a stock and enter quantity or amount.");
+    return;
+  }
+
+  try {
+    const endpoint =
+      tradeType === "BUY" ? "/api/trade/buy" : "/api/trade/sell";
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        userId: user.id,
+        stockSymbol: selectedStock.symbol,
+        quantity: Number(quantity),
+        pricePerShare: Number(stockPrice),
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      alert(data.message || `${tradeType} failed`);
+      return;
+    }
+
+    alert(
+      tradeType === "BUY"
+        ? "Stock purchased successfully!"
+        : "Stock sold successfully!"
+    );
+
+    const refreshed = await fetch(`/api/portfolio/${user.id}`);
+    const refreshedData = await refreshed.json();
+    setPortfolioData(refreshedData);
+
+    setStockSymbol("");
+    setSelectedStock(null);
+    setStockPrice(0);
+    setQuantity("");
+    setAmount("");
+    setSearchResults([]);
+    setShowDropdown(false);
+  } catch (error) {
+    console.error(error);
+    alert("Could not connect to server.");
+  }
+};
 
   return (
     <div className="dashboard-page">
@@ -237,24 +398,59 @@ function DashboardPage() {
                 </h4>
               </div>
 
-              <div className="trade-section">
+              <div className="trade-section trade-search-wrapper" ref={searchBoxRef}>
                 <label className="trade-label">Stock</label>
                 <input
                   className="trade-input"
                   type="text"
                   placeholder="Search stock symbol (e.g. AAPL)"
                   value={stockSymbol}
-                  onChange={(e) => setStockSymbol(e.target.value)}
+                  onChange={(e) => {
+                    setStockSymbol(e.target.value);
+                    setSelectedStock(null);
+                    setStockPrice(0);
+                  }}
+                  onFocus={() => {
+                    if (searchResults.length > 0) setShowDropdown(true);
+                  }}
                 />
-                <p className="trade-hint">
-                  Sample symbols: AAPL, TSLA, MSFT, NVDA, AMZN, GOOGL, META
-                </p>
+
+                {searchLoading && (
+                  <p className="trade-hint">Searching stocks...</p>
+                )}
+
+                {!searchLoading && selectedStock && (
+                  <p className="trade-hint">
+                    Selected: {selectedStock.symbol} - {selectedStock.description}
+                  </p>
+                )}
+
+                {showDropdown && searchResults.length > 0 && (
+                  <div className="stock-dropdown">
+                    {searchResults.map((stock, index) => (
+                      <button
+                        key={`${stock.symbol}-${index}`}
+                        className="stock-dropdown-item"
+                        onClick={() => handleSelectStock(stock)}
+                      >
+                        <span className="stock-symbol">{stock.symbol}</span>
+                        <span className="stock-description">
+                          {stock.description}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="trade-section">
                 <label className="trade-label">Current Price</label>
                 <div className="trade-static-box">
-                  {selectedPrice > 0 ? `$${selectedPrice.toFixed(2)}` : "$0.00"}
+                  {priceLoading
+                    ? "Loading..."
+                    : stockPrice > 0
+                    ? `$${stockPrice.toFixed(2)}`
+                    : "$0.00"}
                 </div>
               </div>
 
@@ -264,9 +460,23 @@ function DashboardPage() {
                   className="trade-input"
                   type="number"
                   min="0"
+                  step="0.0001"
                   placeholder="Enter quantity"
                   value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
+                  onChange={handleQuantityChange}
+                />
+              </div>
+
+              <div className="trade-section">
+                <label className="trade-label">Amount</label>
+                <input
+                  className="trade-input"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Enter amount in dollars"
+                  value={amount}
+                  onChange={handleAmountChange}
                 />
               </div>
 
@@ -287,19 +497,20 @@ function DashboardPage() {
 
               <p className="trade-status">{orderMessage}</p>
 
-              <button
-                className="trade-submit-btn"
-                disabled={!selectedPrice || !parsedQuantity}
-              >
-                Preview {tradeType} Order
-              </button>
+<button
+  className="trade-submit-btn"
+  disabled={!stockPrice || (!parsedQuantity && !parsedAmount)}
+  onClick={handlePreviewOrder}
+>
+  Preview {tradeType} Order
+</button>
             </div>
 
             <div className="panel right-panel thin">
               <h3>Order Notes</h3>
               <div className="order-notes">
                 <p>• Search for a stock by symbol</p>
-                <p>• Enter quantity to preview total cost</p>
+                <p>• Enter quantity or amount to preview order value</p>
                 <p>• A trading fee will be applied</p>
                 <p>• Live prices and backend order execution come next</p>
               </div>

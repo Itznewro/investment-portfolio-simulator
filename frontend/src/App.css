@@ -127,12 +127,16 @@ body {
 
 .sidebar {
   width: 250px;
+  height: 100vh;
+  position: sticky;
+  top: 0;
   background: #111111;
   padding: 24px 18px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   border-right: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
 }
 
 .sidebar-logo {
@@ -626,4 +630,56 @@ body {
   opacity: 0.55;
   cursor: not-allowed;
   transform: none;
+}
+
+.trade-search-wrapper {
+  position: relative;
+}
+
+.stock-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 100%;
+  background: #111111;
+  border: 1px solid #2f2f2f;
+  border-radius: 14px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 30;
+}
+
+.stock-dropdown-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 12px 14px;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  cursor: pointer;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.stock-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.stock-dropdown-item:hover {
+  background: rgba(103, 65, 191, 0.12);
+}
+
+.stock-symbol {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.stock-description {
+  font-size: 12px;
+  color: #a8a8a8;
+  line-height: 1.4;
 }
