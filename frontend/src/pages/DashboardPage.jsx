@@ -1,12 +1,16 @@
 import "../App.css";
 import logo from "../assets/logo.png";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 function DashboardPage() {
   const user = JSON.parse(localStorage.getItem("user"));
 
   const [portfolioData, setPortfolioData] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const [tradeType, setTradeType] = useState("BUY");
+  const [stockSymbol, setStockSymbol] = useState("");
+  const [quantity, setQuantity] = useState("");
 
   useEffect(() => {
     const fetchPortfolio = async () => {
@@ -32,14 +36,36 @@ function DashboardPage() {
 
   const holdings = portfolioData?.holdings || [];
   const transactions = portfolioData?.transactions || [];
-
   const assetsHeld = holdings.length;
-
-  // For now, portfolio value = cash balance because no live holdings value yet
   const portfolioValue = cashBalance;
-
-  // For now, today's gain = 0 until stock price tracking is added
   const todaysGain = 0;
+
+  const mockStockPrices = {
+    AAPL: 212.45,
+    TSLA: 171.88,
+    MSFT: 428.12,
+    NVDA: 118.76,
+    AMZN: 182.21,
+    GOOGL: 167.34,
+    META: 503.11,
+  };
+
+  const normalizedSymbol = stockSymbol.trim().toUpperCase();
+  const selectedPrice = mockStockPrices[normalizedSymbol] || 0;
+  const parsedQuantity = Number(quantity) || 0;
+  const subtotal = selectedPrice * parsedQuantity;
+  const fee = subtotal * 0.005;
+  const total = tradeType === "BUY" ? subtotal + fee : subtotal - fee;
+
+  const orderMessage = useMemo(() => {
+    if (!normalizedSymbol) return "Search and select a stock symbol.";
+    if (!selectedPrice) return "Stock not found in sample list yet.";
+    if (!parsedQuantity) return "Enter a quantity to preview the order.";
+    if (tradeType === "BUY" && total > cashBalance) {
+      return "Insufficient balance for this order.";
+    }
+    return `${tradeType} order preview ready.`;
+  }, [normalizedSymbol, selectedPrice, parsedQuantity, tradeType, total, cashBalance]);
 
   return (
     <div className="dashboard-page">
@@ -80,7 +106,12 @@ function DashboardPage() {
             <div className="balance-box">
               <p>Virtual Balance</p>
               <h3>
-                {loading ? "Loading..." : `$${cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                {loading
+                  ? "Loading..."
+                  : `$${cashBalance.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}`}
               </h3>
             </div>
 
@@ -179,69 +210,100 @@ function DashboardPage() {
 
           <div className="dashboard-right">
             <div className="panel right-panel trade-panel">
-  <div className="trade-toggle">
-    <button className="trade-tab active">Buy</button>
-    <button className="trade-tab">Sell</button>
-  </div>
+              <div className="trade-toggle">
+                <button
+                  className={`trade-tab ${tradeType === "BUY" ? "active" : ""}`}
+                  onClick={() => setTradeType("BUY")}
+                >
+                  Buy
+                </button>
+                <button
+                  className={`trade-tab ${tradeType === "SELL" ? "active" : ""}`}
+                  onClick={() => setTradeType("SELL")}
+                >
+                  Sell
+                </button>
+              </div>
 
-  <div className="trade-section">
-    <p className="trade-label">Available Balance</p>
-    <h4 className="trade-balance">
-      {loading
-        ? "Loading..."
-        : `$${cashBalance.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}`}
-    </h4>
-  </div>
+              <div className="trade-section">
+                <p className="trade-label">Available Balance</p>
+                <h4 className="trade-balance">
+                  {loading
+                    ? "Loading..."
+                    : `$${cashBalance.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}`}
+                </h4>
+              </div>
 
-  <div className="trade-section">
-    <label className="trade-label">Stock</label>
-    <input
-      className="trade-input"
-      type="text"
-      placeholder="Search stock symbol (e.g. AAPL)"
-    />
-  </div>
+              <div className="trade-section">
+                <label className="trade-label">Stock</label>
+                <input
+                  className="trade-input"
+                  type="text"
+                  placeholder="Search stock symbol (e.g. AAPL)"
+                  value={stockSymbol}
+                  onChange={(e) => setStockSymbol(e.target.value)}
+                />
+                <p className="trade-hint">
+                  Sample symbols: AAPL, TSLA, MSFT, NVDA, AMZN, GOOGL, META
+                </p>
+              </div>
 
-  <div className="trade-section">
-    <label className="trade-label">Current Price</label>
-    <div className="trade-static-box">$0.00</div>
-  </div>
+              <div className="trade-section">
+                <label className="trade-label">Current Price</label>
+                <div className="trade-static-box">
+                  {selectedPrice > 0 ? `$${selectedPrice.toFixed(2)}` : "$0.00"}
+                </div>
+              </div>
 
-  <div className="trade-section">
-    <label className="trade-label">Quantity</label>
-    <input
-      className="trade-input"
-      type="number"
-      placeholder="Enter quantity"
-    />
-  </div>
+              <div className="trade-section">
+                <label className="trade-label">Quantity</label>
+                <input
+                  className="trade-input"
+                  type="number"
+                  min="0"
+                  placeholder="Enter quantity"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                />
+              </div>
 
-  <div className="trade-summary">
-    <div className="trade-summary-row">
-      <span>Fee (0.50%)</span>
-      <span>$0.00</span>
-    </div>
-    <div className="trade-summary-row total">
-      <span>Total</span>
-      <span>$0.00</span>
-    </div>
-  </div>
+              <div className="trade-summary">
+                <div className="trade-summary-row">
+                  <span>Subtotal</span>
+                  <span>${subtotal.toFixed(2)}</span>
+                </div>
+                <div className="trade-summary-row">
+                  <span>Fee (0.50%)</span>
+                  <span>${fee.toFixed(2)}</span>
+                </div>
+                <div className="trade-summary-row total">
+                  <span>Total</span>
+                  <span>${total > 0 ? total.toFixed(2) : "0.00"}</span>
+                </div>
+              </div>
 
-  <button className="trade-submit-btn">Preview Buy Order</button>
-</div>
+              <p className="trade-status">{orderMessage}</p>
+
+              <button
+                className="trade-submit-btn"
+                disabled={!selectedPrice || !parsedQuantity}
+              >
+                Preview {tradeType} Order
+              </button>
+            </div>
 
             <div className="panel right-panel thin">
-  <h3>Order Notes</h3>
-  <div className="order-notes">
-    <p>• Search for a stock by symbol</p>
-    <p>• Enter quantity to preview total cost</p>
-    <p>• A trading fee will be applied</p>
-    <p>• Buy and Sell logic will be connected next</p>
-  </div>
-</div>
+              <h3>Order Notes</h3>
+              <div className="order-notes">
+                <p>• Search for a stock by symbol</p>
+                <p>• Enter quantity to preview total cost</p>
+                <p>• A trading fee will be applied</p>
+                <p>• Live prices and backend order execution come next</p>
+              </div>
+            </div>
           </div>
         </section>
       </main>

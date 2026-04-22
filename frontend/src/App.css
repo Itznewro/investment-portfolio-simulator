@@ -608,3 +608,22 @@ body {
   font-size: 14px;
   line-height: 1.5;
 }
+
+.trade-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #8f8f8f;
+  line-height: 1.4;
+}
+
+.trade-status {
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: #bdbdbd;
+}
+
+.trade-submit-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
