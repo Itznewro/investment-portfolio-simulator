@@ -1,30 +1,17 @@
-import "./App.css";
+import { Routes, Route } from "react-router-dom";
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
+import IntroPage from "./pages/IntroPage";
+import DashboardPage from "./pages/DashboardPage";
 
 function App() {
   return (
-    <div className="container">
-      <div className="login-box">
-        <h1>Sign In to Simulator</h1>
-
-        <label>Email Address</label>
-        <input
-          type="email"
-          placeholder="Enter Your Email Address"
-        />
-
-        <button>Continue</button>
-
-        <div className="divider">
-          <span></span>
-          <p>OR</p>
-          <span></span>
-        </div>
-
-        <p className="register">
-          Register Now →
-        </p>
-      </div>
-    </div>
+    <Routes>
+      <Route path="/" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/intro" element={<IntroPage />} />
+      <Route path="/dashboard" element={<DashboardPage />} />
+    </Routes>
   );
 }
 
