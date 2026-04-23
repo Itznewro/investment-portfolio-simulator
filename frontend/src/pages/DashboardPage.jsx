@@ -20,6 +20,9 @@ function DashboardPage() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [priceLoading, setPriceLoading] = useState(false);
 
+  const [holdingPrices, setHoldingPrices] = useState({});
+  const [holdingsValueLoading, setHoldingsValueLoading] = useState(false);
+
   const searchBoxRef = useRef(null);
 
   useEffect(() => {
@@ -52,6 +55,11 @@ function DashboardPage() {
   }, []);
 
   const holdings = portfolioData?.holdings || [];
+  const cashBalance = portfolioData?.portfolio?.cashBalance
+    ? Number(portfolioData.portfolio.cashBalance)
+    : 0;
+  const transactions = portfolioData?.transactions || [];
+
   const ownedStocks = holdings.map((holding) => ({
     symbol: holding.stock_symbol,
     description: `Owned: ${Number(holding.quantity).toFixed(4)} shares`,
@@ -107,6 +115,37 @@ function DashboardPage() {
     return () => clearTimeout(delay);
   }, [stockSymbol, selectedStock, tradeType, portfolioData]);
 
+  useEffect(() => {
+    const fetchHoldingPrices = async () => {
+      if (!holdings.length) {
+        setHoldingPrices({});
+        return;
+      }
+
+      try {
+        setHoldingsValueLoading(true);
+
+        const priceEntries = await Promise.all(
+          holdings.map(async (holding) => {
+            const symbol = holding.stock_symbol;
+            const response = await fetch(`/api/stocks/quote/${symbol}`);
+            const data = await response.json();
+            return [symbol, Number(data.c) || 0];
+          })
+        );
+
+        const pricesObject = Object.fromEntries(priceEntries);
+        setHoldingPrices(pricesObject);
+      } catch (error) {
+        console.error("Error fetching holding prices:", error);
+      } finally {
+        setHoldingsValueLoading(false);
+      }
+    };
+
+    fetchHoldingPrices();
+  }, [portfolioData]);
+
   const fetchQuote = async (symbol) => {
     try {
       setPriceLoading(true);
@@ -140,14 +179,23 @@ function DashboardPage() {
     fetchQuote(stock.symbol);
   };
 
-  const cashBalance = portfolioData?.portfolio?.cashBalance
-    ? Number(portfolioData.portfolio.cashBalance)
-    : 0;
+  const holdingsMarketValue = holdings.reduce((total, holding) => {
+    const symbol = holding.stock_symbol;
+    const livePrice = holdingPrices[symbol] || 0;
+    const qty = Number(holding.quantity) || 0;
+    return total + qty * livePrice;
+  }, 0);
 
-  const transactions = portfolioData?.transactions || [];
+  const portfolioValue = cashBalance + holdingsMarketValue;
   const assetsHeld = holdings.length;
-  const portfolioValue = cashBalance;
-  const todaysGain = 0;
+
+  const totalCostBasis = holdings.reduce((total, holding) => {
+    const qty = Number(holding.quantity) || 0;
+    const avg = Number(holding.average_buy_price) || 0;
+    return total + qty * avg;
+  }, 0);
+
+  const todaysGain = holdingsMarketValue - totalCostBasis;
 
   const parsedQuantity = Number(quantity) || 0;
   const parsedAmount = Number(amount) || 0;
@@ -220,6 +268,12 @@ function DashboardPage() {
     setQuantity(calculatedQuantity.toFixed(4));
   };
 
+  const refreshPortfolio = async () => {
+    const refreshed = await fetch(`/api/portfolio/${user.id}`);
+    const refreshedData = await refreshed.json();
+    setPortfolioData(refreshedData);
+  };
+
   const handlePreviewOrder = async () => {
     if (!selectedStock || !stockPrice || (!quantity && !amount)) {
       alert("Please select a stock and enter quantity or amount.");
@@ -261,9 +315,7 @@ function DashboardPage() {
           : "Stock sold successfully!"
       );
 
-      const refreshed = await fetch(`/api/portfolio/${user.id}`);
-      const refreshedData = await refreshed.json();
-      setPortfolioData(refreshedData);
+      await refreshPortfolio();
 
       setStockSymbol("");
       setSelectedStock(null);
@@ -338,27 +390,29 @@ function DashboardPage() {
           <div className="stat-card">
             <p className="stat-label">Portfolio Value</p>
             <h3>
-              {loading
+              {loading || holdingsValueLoading
                 ? "Loading..."
                 : `$${portfolioValue.toLocaleString(undefined, {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })}`}
             </h3>
-            <span className="stat-neutral">Live after trades</span>
+            <span className="stat-neutral">Cash + live holdings</span>
           </div>
 
           <div className="stat-card">
-            <p className="stat-label">Today's Gain</p>
+            <p className="stat-label">Unrealized Gain/Loss</p>
             <h3>
-              {loading
+              {loading || holdingsValueLoading
                 ? "Loading..."
                 : `$${todaysGain.toLocaleString(undefined, {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })}`}
             </h3>
-            <span className="stat-neutral">No market move yet</span>
+            <span className={todaysGain >= 0 ? "stat-positive" : "stat-loss"}>
+              {todaysGain >= 0 ? "Above cost basis" : "Below cost basis"}
+            </span>
           </div>
 
           <div className="stat-card">
@@ -377,7 +431,7 @@ function DashboardPage() {
                 <div>
                   <p className="chart-subtitle">Balance</p>
                   <h2>
-                    {loading
+                    {loading || holdingsValueLoading
                       ? "Loading..."
                       : `$${portfolioValue.toLocaleString(undefined, {
                           minimumFractionDigits: 2,
