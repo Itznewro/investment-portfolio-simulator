@@ -691,3 +691,57 @@ body {
   padding: 5px 10px;
   border-radius: 999px;
 }
+
+.watchlist {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.watchlist-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.watchlist-row:last-child {
+  border-bottom: none;
+}
+
+.watchlist-symbol {
+  font-size: 15px;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 4px;
+}
+
+.watchlist-name {
+  font-size: 12px;
+  color: #9f9f9f;
+}
+
+.watchlist-right {
+  text-align: right;
+}
+
+.watchlist-price {
+  font-size: 15px;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 4px;
+}
+
+.watchlist-change {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.watchlist-change.positive {
+  color: #7ee787;
+}
+
+.watchlist-change.negative {
+  color: #ff8a8a;
+}

@@ -23,7 +23,12 @@ function DashboardPage() {
   const [holdingPrices, setHoldingPrices] = useState({});
   const [holdingsValueLoading, setHoldingsValueLoading] = useState(false);
 
+  const [watchlistData, setWatchlistData] = useState([]);
+  const [watchlistLoading, setWatchlistLoading] = useState(true);
+
   const searchBoxRef = useRef(null);
+
+  const watchlistSymbols = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN"];
 
   useEffect(() => {
     const fetchPortfolio = async () => {
@@ -42,6 +47,36 @@ function DashboardPage() {
       fetchPortfolio();
     }
   }, [user?.id]);
+
+  useEffect(() => {
+    const fetchWatchlist = async () => {
+      try {
+        setWatchlistLoading(true);
+
+        const quoteResults = await Promise.all(
+          watchlistSymbols.map(async (symbol) => {
+            const response = await fetch(`/api/stocks/quote/${symbol}`);
+            const data = await response.json();
+
+            return {
+              symbol,
+              current: Number(data.c) || 0,
+              change: Number(data.d) || 0,
+              percentChange: Number(data.dp) || 0,
+            };
+          })
+        );
+
+        setWatchlistData(quoteResults);
+      } catch (error) {
+        console.error("Error fetching watchlist:", error);
+      } finally {
+        setWatchlistLoading(false);
+      }
+    };
+
+    fetchWatchlist();
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -466,9 +501,36 @@ function DashboardPage() {
 
               <div className="panel small-panel">
                 <h3>Markets</h3>
-                <p className="placeholder-text">
-                  Stock watchlist will go here
-                </p>
+                {watchlistLoading ? (
+                  <p className="placeholder-text">Loading market data...</p>
+                ) : (
+                  <div className="watchlist">
+                    {watchlistData.map((stock) => (
+                      <div key={stock.symbol} className="watchlist-row">
+                        <div>
+                          <p className="watchlist-symbol">{stock.symbol}</p>
+                          <p className="watchlist-name">US Equity</p>
+                        </div>
+
+                        <div className="watchlist-right">
+                          <p className="watchlist-price">
+                            ${stock.current.toFixed(2)}
+                          </p>
+                          <p
+                            className={
+                              stock.percentChange >= 0
+                                ? "watchlist-change positive"
+                                : "watchlist-change negative"
+                            }
+                          >
+                            {stock.percentChange >= 0 ? "+" : ""}
+                            {stock.percentChange.toFixed(2)}%
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
