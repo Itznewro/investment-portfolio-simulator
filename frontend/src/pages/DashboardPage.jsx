@@ -1,5 +1,6 @@
 import "../App.css";
 import logo from "../assets/logo.png";
+import Chart from "../components/Chart";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 function DashboardPage() {
@@ -29,9 +30,22 @@ function DashboardPage() {
   const [economicEvents, setEconomicEvents] = useState([]);
   const [economicLoading, setEconomicLoading] = useState(true);
 
-  const searchBoxRef = useRef(null);
+  const [hoveredChartPoint, setHoveredChartPoint] = useState(null);
 
+  const searchBoxRef = useRef(null);
   const watchlistSymbols = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN"];
+
+  const holdings = portfolioData?.holdings || [];
+  const cashBalance = portfolioData?.portfolio?.cashBalance
+    ? Number(portfolioData.portfolio.cashBalance)
+    : 0;
+  const transactions = portfolioData?.transactions || [];
+
+  const ownedStocks = holdings.map((holding) => ({
+    symbol: holding.stock_symbol,
+    description: `Owned: ${Number(holding.quantity).toFixed(4)} shares`,
+    ownedQuantity: Number(holding.quantity),
+  }));
 
   useEffect(() => {
     const fetchPortfolio = async () => {
@@ -46,9 +60,7 @@ function DashboardPage() {
       }
     };
 
-    if (user?.id) {
-      fetchPortfolio();
-    }
+    if (user?.id) fetchPortfolio();
   }, [user?.id]);
 
   useEffect(() => {
@@ -64,7 +76,6 @@ function DashboardPage() {
             return {
               symbol,
               current: Number(data.c) || 0,
-              change: Number(data.d) || 0,
               percentChange: Number(data.dp) || 0,
             };
           })
@@ -110,18 +121,6 @@ function DashboardPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const holdings = portfolioData?.holdings || [];
-  const cashBalance = portfolioData?.portfolio?.cashBalance
-    ? Number(portfolioData.portfolio.cashBalance)
-    : 0;
-  const transactions = portfolioData?.transactions || [];
-
-  const ownedStocks = holdings.map((holding) => ({
-    symbol: holding.stock_symbol,
-    description: `Owned: ${Number(holding.quantity).toFixed(4)} shares`,
-    ownedQuantity: Number(holding.quantity),
-  }));
-
   useEffect(() => {
     const fetchSearchResults = async () => {
       if (!stockSymbol.trim()) {
@@ -164,10 +163,7 @@ function DashboardPage() {
       }
     };
 
-    const delay = setTimeout(() => {
-      fetchSearchResults();
-    }, 300);
-
+    const delay = setTimeout(fetchSearchResults, 300);
     return () => clearTimeout(delay);
   }, [stockSymbol, selectedStock, tradeType, portfolioData]);
 
@@ -190,8 +186,7 @@ function DashboardPage() {
           })
         );
 
-        const pricesObject = Object.fromEntries(priceEntries);
-        setHoldingPrices(pricesObject);
+        setHoldingPrices(Object.fromEntries(priceEntries));
       } catch (error) {
         console.error("Error fetching holding prices:", error);
       } finally {
@@ -212,13 +207,9 @@ function DashboardPage() {
       setStockPrice(livePrice);
 
       if (quantity) {
-        const recalculatedAmount = Number(quantity) * livePrice;
-        setAmount(recalculatedAmount > 0 ? recalculatedAmount.toFixed(2) : "");
+        setAmount((Number(quantity) * livePrice).toFixed(2));
       } else if (amount) {
-        const recalculatedQuantity = Number(amount) / livePrice;
-        setQuantity(
-          recalculatedQuantity > 0 ? recalculatedQuantity.toFixed(4) : ""
-        );
+        setQuantity((Number(amount) / livePrice).toFixed(4));
       }
     } catch (error) {
       console.error("Quote error:", error);
@@ -236,22 +227,21 @@ function DashboardPage() {
   };
 
   const holdingsMarketValue = holdings.reduce((total, holding) => {
-    const symbol = holding.stock_symbol;
-    const livePrice = holdingPrices[symbol] || 0;
-    const qty = Number(holding.quantity) || 0;
-    return total + qty * livePrice;
+    const livePrice = holdingPrices[holding.stock_symbol] || 0;
+    return total + Number(holding.quantity) * livePrice;
   }, 0);
 
   const portfolioValue = cashBalance + holdingsMarketValue;
   const assetsHeld = holdings.length;
 
   const totalCostBasis = holdings.reduce((total, holding) => {
-    const qty = Number(holding.quantity) || 0;
-    const avg = Number(holding.average_buy_price) || 0;
-    return total + qty * avg;
+    return (
+      total +
+      Number(holding.quantity || 0) * Number(holding.average_buy_price || 0)
+    );
   }, 0);
 
-  const todaysGain = holdingsMarketValue - totalCostBasis;
+  const unrealizedGain = holdingsMarketValue - totalCostBasis;
 
   const parsedQuantity = Number(quantity) || 0;
   const parsedAmount = Number(amount) || 0;
@@ -265,9 +255,7 @@ function DashboardPage() {
       ? holdings.find((h) => h.stock_symbol === selectedStock?.symbol)
       : null;
 
-  const maxSellQuantity = selectedHolding
-    ? Number(selectedHolding.quantity)
-    : 0;
+  const maxSellQuantity = selectedHolding ? Number(selectedHolding.quantity) : 0;
 
   const orderMessage = useMemo(() => {
     if (!stockSymbol.trim()) {
@@ -275,15 +263,21 @@ function DashboardPage() {
         ? "Search and select a stock symbol."
         : "Select a stock from your holdings.";
     }
+
     if (!stockPrice) return "Waiting for live stock price.";
-    if (!parsedQuantity && !parsedAmount)
+
+    if (!parsedQuantity && !parsedAmount) {
       return "Enter quantity or amount to preview the order.";
+    }
+
     if (tradeType === "BUY" && total > cashBalance) {
       return "Insufficient balance for this order.";
     }
+
     if (tradeType === "SELL" && parsedQuantity > maxSellQuantity) {
       return `You only own ${maxSellQuantity.toFixed(4)} shares.`;
     }
+
     return `${tradeType} order preview ready.`;
   }, [
     stockSymbol,
@@ -306,8 +300,7 @@ function DashboardPage() {
       return;
     }
 
-    const calculatedAmount = numericValue * stockPrice;
-    setAmount(calculatedAmount.toFixed(2));
+    setAmount((numericValue * stockPrice).toFixed(2));
   };
 
   const handleAmountChange = (e) => {
@@ -320,8 +313,7 @@ function DashboardPage() {
       return;
     }
 
-    const calculatedQuantity = numericValue / stockPrice;
-    setQuantity(calculatedQuantity.toFixed(4));
+    setQuantity((numericValue / stockPrice).toFixed(4));
   };
 
   const refreshPortfolio = async () => {
@@ -461,13 +453,13 @@ function DashboardPage() {
             <h3>
               {loading || holdingsValueLoading
                 ? "Loading..."
-                : `$${todaysGain.toLocaleString(undefined, {
+                : `$${unrealizedGain.toLocaleString(undefined, {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })}`}
             </h3>
-            <span className={todaysGain >= 0 ? "stat-positive" : "stat-loss"}>
-              {todaysGain >= 0 ? "Above cost basis" : "Below cost basis"}
+            <span className={unrealizedGain >= 0 ? "stat-positive" : "stat-loss"}>
+              {unrealizedGain >= 0 ? "Above cost basis" : "Below cost basis"}
             </span>
           </div>
 
@@ -485,31 +477,28 @@ function DashboardPage() {
             <div className="panel large-panel chart-panel">
               <div className="chart-header">
                 <div>
-                  <p className="chart-subtitle">Balance</p>
+                  <p className="chart-subtitle">
+                    {hoveredChartPoint ? hoveredChartPoint.time : "Balance"}
+                  </p>
+
                   <h2>
                     {loading || holdingsValueLoading
                       ? "Loading..."
-                      : `$${portfolioValue.toLocaleString(undefined, {
+                      : `$${(
+                          hoveredChartPoint?.value || portfolioValue
+                        ).toLocaleString(undefined, {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}`}
                   </h2>
                 </div>
-
-                <div className="chart-filters">
-                  <button className="filter-btn active">1D</button>
-                  <button className="filter-btn">1W</button>
-                  <button className="filter-btn">1M</button>
-                  <button className="filter-btn">3M</button>
-                  <button className="filter-btn">1Y</button>
-                </div>
               </div>
 
-              <div className="chart-visual">
-                <div className="chart-grid-lines"></div>
-                <div className="fake-line"></div>
-                <div className="chart-point"></div>
-              </div>
+              <Chart
+                portfolioValue={portfolioValue}
+                onHoverPoint={setHoveredChartPoint}
+                onLeaveChart={() => setHoveredChartPoint(null)}
+              />
             </div>
 
             <div className="bottom-row">
@@ -525,14 +514,19 @@ function DashboardPage() {
                     {economicEvents.map((event, index) => (
                       <div key={index} className="event-row">
                         <div className="event-left">
-                          <p className="event-title">{event.event || "Economic Event"}</p>
+                          <p className="event-title">
+                            {event.event || "Economic Event"}
+                          </p>
                           <p className="event-country">
-                            {event.country || "N/A"} • {event.indicator || "N/A"}
+                            {event.country || "N/A"} •{" "}
+                            {event.indicator || "N/A"}
                           </p>
                         </div>
 
                         <div className="event-right">
-                          <p className="event-time">{event.time ? event.time : "TBA"}</p>
+                          <p className="event-time">
+                            {event.time ? event.time : "TBA"}
+                          </p>
                           <p
                             className={`event-impact ${
                               event.impact === "High"
@@ -605,6 +599,7 @@ function DashboardPage() {
                 >
                   Buy
                 </button>
+
                 <button
                   className={`trade-tab ${tradeType === "SELL" ? "active" : ""}`}
                   onClick={() => {
@@ -634,7 +629,10 @@ function DashboardPage() {
                 </h4>
               </div>
 
-              <div className="trade-section trade-search-wrapper" ref={searchBoxRef}>
+              <div
+                className="trade-section trade-search-wrapper"
+                ref={searchBoxRef}
+              >
                 <label className="trade-label">
                   {tradeType === "BUY" ? "Stock" : "Your Holdings"}
                 </label>
@@ -668,7 +666,8 @@ function DashboardPage() {
 
                 {!searchLoading && selectedStock && (
                   <p className="trade-hint">
-                    Selected: {selectedStock.symbol} - {selectedStock.description}
+                    Selected: {selectedStock.symbol} -{" "}
+                    {selectedStock.description}
                   </p>
                 )}
 

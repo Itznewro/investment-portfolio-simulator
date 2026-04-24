@@ -813,3 +813,41 @@ body {
   color: #7ee787;
   background: rgba(126, 231, 135, 0.12);
 }
+
+.real-chart {
+  padding: 12px;
+}
+.real-chart {
+  position: relative;
+  height: 250px;
+  padding: 10px 0 52px;
+  background:
+    radial-gradient(circle at center, rgba(103, 65, 191, 0.15), transparent 55%),
+    #101010;
+}
+
+.chart-tabs {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chart-tabs button {
+  background: transparent;
+  border: none;
+  color: white;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 8px 16px;
+  border-radius: 999px;
+}
+
+.chart-tabs button.active {
+  background: rgba(103, 65, 191, 0.35);
+  color: #ffffff;
+}
