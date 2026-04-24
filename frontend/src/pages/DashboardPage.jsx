@@ -26,6 +26,9 @@ function DashboardPage() {
   const [watchlistData, setWatchlistData] = useState([]);
   const [watchlistLoading, setWatchlistLoading] = useState(true);
 
+  const [economicEvents, setEconomicEvents] = useState([]);
+  const [economicLoading, setEconomicLoading] = useState(true);
+
   const searchBoxRef = useRef(null);
 
   const watchlistSymbols = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN"];
@@ -76,6 +79,24 @@ function DashboardPage() {
     };
 
     fetchWatchlist();
+  }, []);
+
+  useEffect(() => {
+    const fetchEconomicEvents = async () => {
+      try {
+        setEconomicLoading(true);
+        const response = await fetch("/api/economic-events");
+        const data = await response.json();
+        setEconomicEvents(Array.isArray(data) ? data : []);
+      } catch (error) {
+        console.error("Error fetching economic events:", error);
+        setEconomicEvents([]);
+      } finally {
+        setEconomicLoading(false);
+      }
+    };
+
+    fetchEconomicEvents();
   }, []);
 
   useEffect(() => {
@@ -494,9 +515,40 @@ function DashboardPage() {
             <div className="bottom-row">
               <div className="panel small-panel">
                 <h3>Economic Events</h3>
-                <p className="placeholder-text">
-                  Real events card will go here
-                </p>
+
+                {economicLoading ? (
+                  <p className="placeholder-text">Loading economic events...</p>
+                ) : economicEvents.length === 0 ? (
+                  <p className="placeholder-text">No events available right now.</p>
+                ) : (
+                  <div className="events-list">
+                    {economicEvents.map((event, index) => (
+                      <div key={index} className="event-row">
+                        <div className="event-left">
+                          <p className="event-title">{event.event || "Economic Event"}</p>
+                          <p className="event-country">
+                            {event.country || "N/A"} • {event.indicator || "N/A"}
+                          </p>
+                        </div>
+
+                        <div className="event-right">
+                          <p className="event-time">{event.time ? event.time : "TBA"}</p>
+                          <p
+                            className={`event-impact ${
+                              event.impact === "High"
+                                ? "high"
+                                : event.impact === "Medium"
+                                ? "medium"
+                                : "low"
+                            }`}
+                          >
+                            {event.impact || "Low"}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="panel small-panel">
