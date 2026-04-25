@@ -495,10 +495,11 @@ function DashboardPage() {
               </div>
 
               <Chart
+                userId={user.id}
                 portfolioValue={portfolioValue}
                 onHoverPoint={setHoveredChartPoint}
                 onLeaveChart={() => setHoveredChartPoint(null)}
-              />
+                />
             </div>
 
             <div className="bottom-row">

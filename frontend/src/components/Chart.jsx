@@ -7,40 +7,56 @@ import {
   Tooltip,
   Area,
 } from "recharts";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-function Chart({ portfolioValue, onHoverPoint, onLeaveChart }) {
+function Chart({ userId, portfolioValue, onHoverPoint, onLeaveChart }) {
   const [activeRange, setActiveRange] = useState("1D");
+  const [historyData, setHistoryData] = useState([]);
 
-  const chartData = useMemo(() => {
-    const baseValue = portfolioValue || 100000;
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const response = await fetch(`/api/history/${userId}`);
+        const data = await response.json();
 
-    const pointsByRange = {
-      "1H": 20,
-      "1D": 40,
-      "1W": 55,
-      "1M": 70,
-      "1Y": 90,
-      All: 110,
+        const formatted = Array.isArray(data)
+          ? data.map((item, index) => ({
+              name: index + 1,
+              value: Number(item.portfolio_value),
+              time: new Date(item.created_at).toLocaleString(),
+            }))
+          : [];
+
+        setHistoryData(formatted);
+      } catch (error) {
+        console.error("Chart history error:", error);
+        setHistoryData([]);
+      }
     };
 
-    const count = pointsByRange[activeRange];
+    if (userId) fetchHistory();
+  }, [userId, portfolioValue]);
 
-    return Array.from({ length: count }, (_, index) => {
-      const wave = Math.sin(index / 3) * 450;
-      const smallMove = Math.cos(index / 2) * 220;
-      const randomLike = Math.sin(index * 1.7) * 120;
+  const chartData = useMemo(() => {
+    if (historyData.length > 0) {
+      return [
+        {
+          name: "Start",
+          value: 100000,
+          time: "Starting Balance",
+        },
+        ...historyData,
+      ];
+    }
 
-      const date = new Date();
-      date.setHours(date.getHours() - (count - index));
-
-      return {
-        name: index,
-        value: Number((baseValue + wave + smallMove + randomLike).toFixed(2)),
-        time: date.toLocaleString(),
-      };
-    });
-  }, [portfolioValue, activeRange]);
+    return [
+      {
+        name: "Start",
+        value: portfolioValue || 100000,
+        time: "No trading history yet",
+      },
+    ];
+  }, [historyData, portfolioValue]);
 
   return (
     <div className="chart-visual real-chart">

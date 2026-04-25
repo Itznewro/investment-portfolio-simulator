@@ -84,6 +84,25 @@ const buyStock = async (req, res) => {
       [portfolio.id, stockSymbol.toUpperCase(), qty, price, totalCost]
     );
 
+    const holdingsAfterBuy = await client.query(
+  "SELECT quantity, average_buy_price FROM holdings WHERE portfolio_id = $1",
+  [portfolio.id]
+);
+
+let holdingsValue = 0;
+
+for (const holding of holdingsAfterBuy.rows) {
+  holdingsValue += Number(holding.quantity) * Number(holding.average_buy_price);
+}
+
+const portfolioValue = newBalance + holdingsValue;
+
+await client.query(
+  `INSERT INTO portfolio_history (portfolio_id, portfolio_value, cash_balance)
+   VALUES ($1, $2, $3)`,
+  [portfolio.id, portfolioValue, newBalance]
+);
+
     await client.query("COMMIT");
 
     res.status(200).json({
@@ -179,6 +198,25 @@ const sellStock = async (req, res) => {
        VALUES ($1, $2, 'SELL', $3, $4, $5)`,
       [portfolio.id, stockSymbol.toUpperCase(), qty, price, totalReceived]
     );
+
+    const holdingsAfterSell = await client.query(
+  "SELECT quantity, average_buy_price FROM holdings WHERE portfolio_id = $1",
+  [portfolio.id]
+);
+
+let holdingsValue = 0;
+
+for (const holding of holdingsAfterSell.rows) {
+  holdingsValue += Number(holding.quantity) * Number(holding.average_buy_price);
+}
+
+const portfolioValue = newBalance + holdingsValue;
+
+await client.query(
+  `INSERT INTO portfolio_history (portfolio_id, portfolio_value, cash_balance)
+   VALUES ($1, $2, $3)`,
+  [portfolio.id, portfolioValue, newBalance]
+);
 
     await client.query("COMMIT");
 

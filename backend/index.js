@@ -6,6 +6,8 @@ const authRoutes = require("./routes/authRoutes");
 const portfolioRoutes = require("./routes/portfolioRoutes");
 const tradeRoutes = require("./routes/tradeRoutes");
 const stockRoutes = require("./routes/stockRoutes");
+const economicRoutes = require("./routes/economicRoutes");
+const historyRoutes = require("./routes/historyRoutes");
 
 const app = express();
 
@@ -20,6 +22,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/portfolio", portfolioRoutes);
 app.use("/api/trade", tradeRoutes);
 app.use("/api/stocks", stockRoutes);
+app.use("/api/economic-events", economicRoutes);
+app.use("/api/history", historyRoutes);
 
 const PORT = process.env.PORT || 5000;
 
