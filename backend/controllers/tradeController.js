@@ -234,3 +234,4 @@ await client.query(
 };
 
 module.exports = { buyStock, sellStock };
+
