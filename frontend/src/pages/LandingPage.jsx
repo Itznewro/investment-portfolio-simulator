@@ -5,9 +5,18 @@ import "../App.css";
 
 function LandingPage() {
   const [showCookies, setShowCookies] = useState(true);
+const [darkMode, setDarkMode] = useState(
+  localStorage.getItem("landingTheme") === "dark"
+);
+
+const toggleTheme = () => {
+  const newTheme = !darkMode;
+  setDarkMode(newTheme);
+  localStorage.setItem("landingTheme", newTheme ? "dark" : "light");
+};
 
   return (
-    <div className="landing-page">
+    <div className={`landing-page ${darkMode ? "landing-dark" : ""}`}>
       <nav className="landing-navbar">
         <div className="landing-logo">
           <img src={logo} alt="IPSimulator logo" />
@@ -21,6 +30,9 @@ function LandingPage() {
         </div>
 
         <div className="landing-actions">
+          <button className="theme-toggle" onClick={toggleTheme}>
+               {darkMode ? "Light" : "Dark"}
+           </button>
           <Link to="/login" className="landing-signin">Sign In</Link>
           <Link to="/register" className="landing-primary">Get Started</Link>
         </div>

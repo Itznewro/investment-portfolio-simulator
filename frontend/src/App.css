@@ -1245,3 +1245,159 @@ body {
     width: auto;
   }
 }
+
+.theme-toggle {
+  border: none;
+  border-radius: 999px;
+  padding: 14px 20px;
+  font-weight: 800;
+  cursor: pointer;
+  background: #f0f1f4;
+  color: #111;
+}
+
+.landing-dark {
+  background: #08090c;
+  color: white;
+}
+
+.landing-dark .landing-navbar {
+  background: #08090c;
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+.landing-dark .landing-links a {
+  color: white;
+}
+
+.landing-dark .landing-signin,
+.landing-dark .theme-toggle,
+.landing-dark .hero-secondary {
+  background: #1a1c22;
+  color: white;
+}
+
+.landing-dark .landing-hero {
+  background: #08090c;
+}
+
+.landing-dark .hero-text p,
+.landing-dark .section-text li,
+.landing-dark .step-card p {
+  color: #b8bfd1;
+}
+
+.landing-dark .hero-preview,
+.landing-dark .landing-section.light,
+.landing-dark .landing-section.white {
+  background: #11131a;
+}
+
+.landing-dark .preview-card,
+.landing-dark .section-image-card,
+.landing-dark .step-card,
+.landing-dark .cookie-popup {
+  background: #171922;
+  color: white;
+}
+
+.landing-dark .preview-row,
+.landing-dark .cookie-popup p {
+  color: white;
+}
+
+.landing-dark .landing-footer {
+  background: #0b093b;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.landing-hero,
+.landing-section,
+.preview-card,
+.step-card,
+.cookie-popup {
+  animation: fadeUp 0.8s ease both;
+}
+
+.landing-primary,
+.hero-primary,
+.hero-secondary,
+.landing-signin,
+.dark-btn,
+.theme-toggle,
+.preview-card button {
+  transition: 0.25s ease;
+}
+
+.landing-primary:hover,
+.hero-primary:hover,
+.preview-card button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(103, 65, 191, 0.3);
+}
+
+.hero-secondary:hover,
+.landing-signin:hover,
+.theme-toggle:hover,
+.dark-btn:hover {
+  transform: translateY(-2px);
+}
+
+.preview-card,
+.step-card,
+.section-image-card,
+.mini-dashboard {
+  transition: 0.3s ease;
+}
+
+.preview-card:hover,
+.step-card:hover,
+.section-image-card:hover,
+.mini-dashboard:hover {
+  transform: translateY(-6px);
+}
+
+.preview-chart {
+  position: relative;
+  overflow: hidden;
+}
+
+.preview-chart::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    120deg,
+    transparent,
+    rgba(255, 255, 255, 0.22),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: chartShine 2.8s ease-in-out infinite;
+}
+
+@keyframes chartShine {
+  0% {
+    transform: translateX(-100%);
+  }
+  55% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
