@@ -1,6 +1,8 @@
 import "../App.css";
 import logo from "../assets/logo.png";
 import Chart from "../components/Chart";
+import Topbar from "../components/Topbar";
+import TradeCard from "../components/TradeCard";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 function DashboardPage() {
@@ -387,12 +389,11 @@ function DashboardPage() {
         </div>
 
         <nav className="sidebar-nav">
-          <button className="nav-item active">Dashboard</button>
-          <button className="nav-item">Portfolio</button>
-          <button className="nav-item">Markets</button>
-          <button className="nav-item">Economic Calendar</button>
-          <button className="nav-item">History</button>
-          <button className="nav-item">Settings</button>
+          <a className="nav-item active" href="/dashboard">Dashboard</a>
+      <a className="nav-item" href="/portfolio">Portfolio</a>
+          <a className="nav-item" href="/trade">Market</a>
+          <a className="nav-item" href="/history">Transactions</a>
+          <a className="nav-item" href="/settings">Settings</a>
         </nav>
 
         <div className="sidebar-card">
@@ -404,35 +405,8 @@ function DashboardPage() {
         </div>
       </aside>
 
-      <main className="dashboard-main">
-        <header className="dashboard-topbar">
-          <div>
-            <p className="topbar-subtitle">
-              Welcome, {user?.fullName || "User"} 👋
-            </p>
-            <h1 className="topbar-title">Dashboard Overview</h1>
-          </div>
-
-          <div className="topbar-actions">
-            <div className="balance-box">
-              <p>Virtual Balance</p>
-              <h3>
-                {loading
-                  ? "Loading..."
-                  : `$${cashBalance.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}`}
-              </h3>
-            </div>
-
-            <input
-              className="search-box"
-              type="text"
-              placeholder="Search stocks..."
-            />
-          </div>
-        </header>
+      <main className="main-content">
+       <Topbar />
 
         <section className="stats-row">
           <div className="stat-card">
@@ -583,181 +557,12 @@ function DashboardPage() {
           </div>
 
           <div className="dashboard-right">
-            <div className="panel right-panel trade-panel">
-              <div className="trade-toggle">
-                <button
-                  className={`trade-tab ${tradeType === "BUY" ? "active" : ""}`}
-                  onClick={() => {
-                    setTradeType("BUY");
-                    setStockSymbol("");
-                    setSelectedStock(null);
-                    setStockPrice(0);
-                    setQuantity("");
-                    setAmount("");
-                    setSearchResults([]);
-                    setShowDropdown(false);
-                  }}
-                >
-                  Buy
-                </button>
-
-                <button
-                  className={`trade-tab ${tradeType === "SELL" ? "active" : ""}`}
-                  onClick={() => {
-                    setTradeType("SELL");
-                    setStockSymbol("");
-                    setSelectedStock(null);
-                    setStockPrice(0);
-                    setQuantity("");
-                    setAmount("");
-                    setSearchResults([]);
-                    setShowDropdown(false);
-                  }}
-                >
-                  Sell
-                </button>
-              </div>
-
-              <div className="trade-section">
-                <p className="trade-label">Available Balance</p>
-                <h4 className="trade-balance">
-                  {loading
-                    ? "Loading..."
-                    : `$${cashBalance.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}`}
-                </h4>
-              </div>
-
-              <div
-                className="trade-section trade-search-wrapper"
-                ref={searchBoxRef}
-              >
-                <label className="trade-label">
-                  {tradeType === "BUY" ? "Stock" : "Your Holdings"}
-                </label>
-                <input
-                  className="trade-input"
-                  type="text"
-                  placeholder={
-                    tradeType === "BUY"
-                      ? "Search stock symbol (e.g. AAPL)"
-                      : "Search your owned stocks"
-                  }
-                  value={stockSymbol}
-                  onChange={(e) => {
-                    setStockSymbol(e.target.value);
-                    setSelectedStock(null);
-                    setStockPrice(0);
-                  }}
-                  onFocus={() => {
-                    if (tradeType === "SELL") {
-                      setSearchResults(ownedStocks);
-                      setShowDropdown(true);
-                    } else if (searchResults.length > 0) {
-                      setShowDropdown(true);
-                    }
-                  }}
-                />
-
-                {searchLoading && tradeType === "BUY" && (
-                  <p className="trade-hint">Searching stocks...</p>
-                )}
-
-                {!searchLoading && selectedStock && (
-                  <p className="trade-hint">
-                    Selected: {selectedStock.symbol} -{" "}
-                    {selectedStock.description}
-                  </p>
-                )}
-
-                {tradeType === "SELL" && selectedHolding && (
-                  <p className="trade-hint">
-                    You own {maxSellQuantity.toFixed(4)} shares
-                  </p>
-                )}
-
-                {showDropdown && searchResults.length > 0 && (
-                  <div className="stock-dropdown">
-                    {searchResults.map((stock, index) => (
-                      <button
-                        key={`${stock.symbol}-${index}`}
-                        className="stock-dropdown-item"
-                        onClick={() => handleSelectStock(stock)}
-                      >
-                        <span className="stock-symbol">{stock.symbol}</span>
-                        <span className="stock-description">
-                          {stock.description}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="trade-section">
-                <label className="trade-label">Current Price</label>
-                <div className="trade-static-box">
-                  {priceLoading
-                    ? "Loading..."
-                    : stockPrice > 0
-                    ? `$${stockPrice.toFixed(2)}`
-                    : "$0.00"}
-                </div>
-              </div>
-
-              <div className="trade-section">
-                <label className="trade-label">Quantity</label>
-                <input
-                  className="trade-input"
-                  type="number"
-                  min="0"
-                  step="0.0001"
-                  placeholder="Enter quantity"
-                  value={quantity}
-                  onChange={handleQuantityChange}
-                />
-              </div>
-
-              <div className="trade-section">
-                <label className="trade-label">Amount</label>
-                <input
-                  className="trade-input"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="Enter amount in dollars"
-                  value={amount}
-                  onChange={handleAmountChange}
-                />
-              </div>
-
-              <div className="trade-summary">
-                <div className="trade-summary-row">
-                  <span>Subtotal</span>
-                  <span>${subtotal.toFixed(2)}</span>
-                </div>
-                <div className="trade-summary-row">
-                  <span>Fee (0.50%)</span>
-                  <span>${fee.toFixed(2)}</span>
-                </div>
-                <div className="trade-summary-row total">
-                  <span>Total</span>
-                  <span>${total > 0 ? total.toFixed(2) : "0.00"}</span>
-                </div>
-              </div>
-
-              <p className="trade-status">{orderMessage}</p>
-
-              <button
-                className="trade-submit-btn"
-                disabled={!stockPrice || (!parsedQuantity && !parsedAmount)}
-                onClick={handlePreviewOrder}
-              >
-                Preview {tradeType} Order
-              </button>
-            </div>
+            <TradeCard
+  user={user}
+  portfolioData={portfolioData}
+  cashBalance={cashBalance}
+  onTradeComplete={refreshPortfolio}
+/>
 
             <div className="panel right-panel thin">
               <h3>Order Notes</h3>
