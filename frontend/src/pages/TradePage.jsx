@@ -12,22 +12,157 @@ const watchlistSymbols = [
   "WMT", "COST", "JPM", "BAC", "V", "MA", "XOM", "CVX", "BA", "GE"
 ];
 
+const fallbackNames = {
+  AAPL: "Apple Inc",
+  MSFT: "Microsoft Corp",
+  NVDA: "NVIDIA Corp",
+  TSLA: "Tesla Inc",
+  AMZN: "Amazon.com Inc",
+  META: "Meta Platforms Inc",
+  GOOGL: "Alphabet Inc",
+  NFLX: "Netflix Inc",
+  AMD: "Advanced Micro Devices Inc",
+  INTC: "Intel Corp",
+  BABA: "Alibaba Group Holding Ltd",
+  ORCL: "Oracle Corp",
+  CRM: "Salesforce Inc",
+  ADBE: "Adobe Inc",
+  PYPL: "PayPal Holdings Inc",
+  UBER: "Uber Technologies Inc",
+  DIS: "Walt Disney Co",
+  NKE: "Nike Inc",
+  KO: "Coca-Cola Co",
+  PEP: "PepsiCo Inc",
+  WMT: "Walmart Inc",
+  COST: "Costco Wholesale Corp",
+  JPM: "JPMorgan Chase & Co",
+  BAC: "Bank of America Corp",
+  V: "Visa Inc",
+  MA: "Mastercard Inc",
+  XOM: "Exxon Mobil Corp",
+  CVX: "Chevron Corp",
+  BA: "Boeing Co",
+  GE: "General Electric Co",
+};
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function formatMoney(value) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number) || number <= 0) {
+    return "N/A";
+  }
+
+  return `$${number.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function getWatchlistKey(userId) {
+  return `ipsimulator-watchlist-${userId || "guest"}`;
+}
+
+function loadSavedWatchlist(key) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
+async function getJson(url) {
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Failed request: ${url}`);
+  }
+
+  return response.json();
+}
+
+async function fetchOneStock(symbol) {
+  try {
+    const [quoteResult, profileResult] = await Promise.allSettled([
+      getJson(`/api/stocks/quote/${symbol}`),
+      getJson(`/api/stocks/profile/${symbol}`),
+    ]);
+
+    const quote =
+      quoteResult.status === "fulfilled" && quoteResult.value
+        ? quoteResult.value
+        : {};
+
+    const profile =
+      profileResult.status === "fulfilled" && profileResult.value
+        ? profileResult.value
+        : {};
+
+    const price = Number(quote.c);
+    const previousClose = Number(quote.pc);
+
+    const validPrice = Number.isFinite(price) && price > 0;
+    const validPrevClose = Number.isFinite(previousClose) && previousClose > 0;
+
+    const calculatedChange =
+      validPrice && validPrevClose
+        ? ((price - previousClose) / previousClose) * 100
+        : 0;
+
+    return {
+      symbol,
+      name: profile.name || fallbackNames[symbol] || symbol,
+      logo: profile.logo || null,
+      price: validPrice ? price : null,
+      change:
+        Number.isFinite(Number(quote.dp)) && Number(quote.dp) !== 0
+          ? Number(quote.dp)
+          : calculatedChange,
+      previousClose: validPrevClose ? previousClose : null,
+      loaded: true,
+    };
+  } catch (error) {
+    console.error(`Stock fetch failed for ${symbol}:`, error);
+
+    return {
+      symbol,
+      name: fallbackNames[symbol] || symbol,
+      logo: null,
+      price: null,
+      change: 0,
+      previousClose: null,
+      loaded: true,
+      failed: true,
+    };
+  }
+}
+
 function TradePage() {
   const user = JSON.parse(localStorage.getItem("user"));
 
   const [portfolioData, setPortfolioData] = useState(null);
-  const [stocks, setStocks] = useState([]);
+  const [stocksBySymbol, setStocksBySymbol] = useState({});
   const [activeTab, setActiveTab] = useState("TOP");
   const [visibleCount, setVisibleCount] = useState(5);
-  const [loading, setLoading] = useState(true);
+  const [loadingStocks, setLoadingStocks] = useState(false);
   const [marketStatus, setMarketStatus] = useState(null);
   const [marketNews, setMarketNews] = useState([]);
+  const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
+
+  const watchlistKey = getWatchlistKey(user?.id);
+  const [savedWatchlist, setSavedWatchlist] = useState(() =>
+    loadSavedWatchlist(watchlistKey)
+  );
 
   const cashBalance = portfolioData?.portfolio?.cashBalance
     ? Number(portfolioData.portfolio.cashBalance)
     : 0;
 
   const refreshPortfolio = async () => {
+    if (!user?.id) return;
+
     const response = await fetch(`/api/portfolio/${user.id}`);
     const data = await response.json();
     setPortfolioData(data);
@@ -38,85 +173,143 @@ function TradePage() {
   }, [user?.id]);
 
   useEffect(() => {
-    const fetchStocks = async () => {
+    setSavedWatchlist(loadSavedWatchlist(watchlistKey));
+  }, [watchlistKey]);
+
+  useEffect(() => {
+    setVisibleCount(5);
+  }, [activeTab, showWatchlistOnly]);
+
+  const activeSymbols = useMemo(() => {
+    if (showWatchlistOnly) {
+      return watchlistSymbols.filter((symbol) => savedWatchlist.includes(symbol));
+    }
+
+    return watchlistSymbols;
+  }, [showWatchlistOnly, savedWatchlist]);
+
+  const symbolsToShow = useMemo(() => {
+    return activeSymbols.slice(0, visibleCount);
+  }, [activeSymbols, visibleCount]);
+
+  const symbolsToShowKey = symbolsToShow.join("|");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadVisibleStocks = async () => {
+      const missingSymbols = symbolsToShow.filter(
+        (symbol) => !stocksBySymbol[symbol]?.loaded
+      );
+
+      if (missingSymbols.length === 0) return;
+
       try {
-        setLoading(true);
+        setLoadingStocks(true);
 
-        const data = await Promise.all(
-          watchlistSymbols.map(async (symbol) => {
-            const quoteRes = await fetch(`/api/stocks/quote/${symbol}`);
-            const quote = await quoteRes.json();
+        for (const symbol of missingSymbols) {
+          const stock = await fetchOneStock(symbol);
 
-            const profileRes = await fetch(`/api/stocks/profile/${symbol}`);
-            const profile = await profileRes.json();
+          if (cancelled) return;
 
-        
+          setStocksBySymbol((prev) => ({
+            ...prev,
+            [symbol]: stock,
+          }));
 
-            return {
-              symbol,
-              name: profile.name || symbol,
-              logo: profile.logo,
-              price: Number(quote.c) || 0,
-              change: Number(quote.dp) || 0,
-              previousClose: Number(quote.pc) || 0,
-            };
-          })
-        );
-
-        setStocks(data);
-      } catch (error) {
-        console.error("Stock list error:", error);
+          await delay(120);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoadingStocks(false);
+        }
       }
     };
 
-    fetchStocks();
-  }, []);
+    loadVisibleStocks();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [symbolsToShowKey]);
 
   useEffect(() => {
-  const fetchMarketExtras = async () => {
-    try {
-      const statusRes = await fetch("/api/stocks/market/status");
-      const statusData = await statusRes.json();
-      setMarketStatus(statusData);
+    const fetchMarketExtras = async () => {
+      try {
+        const [statusResult, newsResult] = await Promise.allSettled([
+          getJson("/api/stocks/market/status"),
+          getJson("/api/stocks/market/news"),
+        ]);
 
-      const newsRes = await fetch("/api/stocks/market/news");
-      const newsData = await newsRes.json();
-      setMarketNews(Array.isArray(newsData) ? newsData : []);
-    } catch (error) {
-      console.error("Market extras error:", error);
-    }
-  };
+        if (statusResult.status === "fulfilled") {
+          setMarketStatus(statusResult.value);
+        }
 
-  fetchMarketExtras();
-}, []);
+        if (newsResult.status === "fulfilled") {
+          setMarketNews(Array.isArray(newsResult.value) ? newsResult.value : []);
+        }
+      } catch (error) {
+        console.error("Market extras error:", error);
+      }
+    };
+
+    fetchMarketExtras();
+  }, []);
 
   const visibleStocks = useMemo(() => {
-  let filtered = [...stocks];
+    let rows = symbolsToShow.map((symbol) => {
+      return (
+        stocksBySymbol[symbol] || {
+          symbol,
+          name: fallbackNames[symbol] || symbol,
+          logo: null,
+          price: null,
+          change: 0,
+          previousClose: null,
+          loaded: false,
+        }
+      );
+    });
 
-  if (activeTab === "GAINERS") {
-    filtered = filtered
-      .filter((s) => s.change > 0)
-      .sort((a, b) => b.change - a.change);
-  }
+    if (activeTab === "GAINERS") {
+      rows = rows.sort((a, b) => Number(b.change) - Number(a.change));
+    }
 
-  if (activeTab === "MOVERS") {
-    filtered = filtered.sort(
-      (a, b) => Math.abs(b.change) - Math.abs(a.change)
-    );
-  }
+    if (activeTab === "MOVERS") {
+      rows = rows.sort(
+        (a, b) => Math.abs(Number(b.change)) - Math.abs(Number(a.change))
+      );
+    }
 
-  return filtered.slice(0, visibleCount);
-}, [stocks, activeTab, visibleCount]);
+    return rows;
+  }, [symbolsToShow, stocksBySymbol, activeTab]);
 
-   const topMover = stocks.length
-  ? [...stocks].sort((a, b) => b.change - a.change)[0]
-  : null;
+  const loadedStocks = useMemo(() => {
+    return Object.values(stocksBySymbol).filter((stock) => stock.loaded);
+  }, [stocksBySymbol]);
 
-const downMover = stocks.length
-  ? [...stocks].sort((a, b) => a.change - b.change)[0]
-  : null; 
+  const topMover = loadedStocks.length
+    ? [...loadedStocks].sort((a, b) => Number(b.change) - Number(a.change))[0]
+    : null;
+
+  const downMover = loadedStocks.length
+    ? [...loadedStocks].sort((a, b) => Number(a.change) - Number(b.change))[0]
+    : null;
+
+  const toggleWatchlist = (symbol) => {
+    setSavedWatchlist((prev) => {
+      const alreadySaved = prev.includes(symbol);
+
+      const next = alreadySaved
+        ? prev.filter((item) => item !== symbol)
+        : [...prev, symbol];
+
+      localStorage.setItem(watchlistKey, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const canBrowseMore = visibleCount < activeSymbols.length;
 
   return (
     <div className="dashboard-page">
@@ -138,7 +331,9 @@ const downMover = stocks.length
 
         <div className="sidebar-card">
           <p className="sidebar-card-title">Trade Center</p>
-          <p className="sidebar-card-text">Search stocks and practice buy/sell orders.</p>
+          <p className="sidebar-card-text">
+            Search stocks and practice buy/sell orders.
+          </p>
           <button className="sidebar-card-btn">Explore</button>
         </div>
       </aside>
@@ -152,7 +347,11 @@ const downMover = stocks.length
               <h1>Stocks</h1>
 
               <div className="trade-filter-tabs">
-                <button className="filter-icon-btn">
+                <button
+                  className={`filter-icon-btn ${showWatchlistOnly ? "active" : ""}`}
+                  onClick={() => setShowWatchlistOnly((prev) => !prev)}
+                  title="Show watchlist only"
+                >
                   <SlidersHorizontal size={18} />
                 </button>
 
@@ -187,21 +386,47 @@ const downMover = stocks.length
                 <span></span>
               </div>
 
-              {loading ? (
-                <p className="placeholder-text">Loading stocks...</p>
+              {showWatchlistOnly && activeSymbols.length === 0 ? (
+                <p className="placeholder-text market-empty-text">
+                  No stocks in your watchlist yet. Click the star beside a stock
+                  to add it.
+                </p>
               ) : (
                 <div className="stock-list">
                   {visibleStocks.map((stock) => {
-                    const isUp = stock.change >= 0;
+                    const isUp = Number(stock.change) >= 0;
+                    const isSaved = savedWatchlist.includes(stock.symbol);
 
                     return (
                       <div className="stock-list-row" key={stock.symbol}>
-                        <Link to={`/stocks/${stock.symbol}`} className="stock-list-name">
-                          {stock.logo ? (
-                            <img src={stock.logo} alt={stock.symbol} />
-                          ) : (
-                            <div className="stock-list-fallback">{stock.symbol[0]}</div>
-                          )}
+                        <Link
+                          to={`/stocks/${stock.symbol}`}
+                          className="stock-list-name"
+                        >
+                          <div className="stock-icon-wrap">
+                            {stock.logo && (
+                              <img
+                                src={stock.logo}
+                                alt={stock.symbol}
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none";
+                                  const fallback =
+                                    e.currentTarget.parentElement.querySelector(
+                                      ".stock-list-fallback"
+                                    );
+
+                                  if (fallback) fallback.style.display = "flex";
+                                }}
+                              />
+                            )}
+
+                            <div
+                              className="stock-list-fallback"
+                              style={{ display: stock.logo ? "none" : "flex" }}
+                            >
+                              {stock.symbol[0]}
+                            </div>
+                          </div>
 
                           <div>
                             <strong>{stock.name}</strong>
@@ -209,109 +434,145 @@ const downMover = stocks.length
                           </div>
                         </Link>
 
-                        <strong>${stock.price.toFixed(2)}</strong>
+                        <strong>
+                          {!stock.loaded ? "Loading..." : formatMoney(stock.price)}
+                        </strong>
 
                         <p className={isUp ? "profit-text" : "loss-text"}>
-                          {isUp ? "↗ " : "↘ "}
-                          {stock.change.toFixed(2)}%
+                          {!stock.loaded
+                            ? "Loading..."
+                            : `${isUp ? "↗ " : "↘ "}${Number(stock.change).toFixed(2)}%`}
                         </p>
 
-                        <strong>${stock.previousClose.toFixed(2)}</strong>
+                        <strong>
+                          {!stock.loaded
+                            ? "Loading..."
+                            : formatMoney(stock.previousClose)}
+                        </strong>
 
-                        <button className="stock-buy-link">Buy</button>
+                        <Link
+                          to={`/stocks/${stock.symbol}`}
+                          className="stock-buy-link"
+                        >
+                          Buy
+                        </Link>
 
-                        <Star size={18} className="stock-star" />
+                        <button
+                          className={`stock-star-btn ${isSaved ? "active" : ""}`}
+                          onClick={() => toggleWatchlist(stock.symbol)}
+                          title={
+                            isSaved
+                              ? "Remove from watchlist"
+                              : "Add to watchlist"
+                          }
+                        >
+                          <Star
+                            size={18}
+                            fill={isSaved ? "currentColor" : "none"}
+                          />
+                        </button>
                       </div>
                     );
                   })}
                 </div>
               )}
 
-              <button
-  className="browse-all-btn"
-  onClick={() => {
-    if (visibleCount >= stocks.length) {
-      setVisibleCount(5);
-    } else {
-      setVisibleCount((prev) => prev + 10);
-    }
-  }}
->
-  {visibleCount >= stocks.length ? "Show less" : "Browse more"}
-</button>
+              {canBrowseMore && (
+                <button
+                  className="browse-all-btn"
+                  disabled={loadingStocks}
+                  onClick={() => setVisibleCount((prev) => prev + 5)}
+                >
+                  {loadingStocks ? "Loading..." : "Browse more"}
+                </button>
+              )}
+
+              {!canBrowseMore && activeSymbols.length > 5 && (
+                <button
+                  className="browse-all-btn"
+                  onClick={() => setVisibleCount(5)}
+                >
+                  Show less
+                </button>
+              )}
             </div>
 
             <div className="market-update-card">
-  <h2>Stock Market Update</h2>
+              <h2>Stock Market Update</h2>
 
-  <div className="market-update-stats">
-    <div className="market-mover-box">
-      <p>Top mover</p>
+              <div className="market-update-stats">
+                <div className="market-mover-box">
+                  <p>Top mover</p>
 
-      {topMover ? (
-        <div className="market-mover-content">
-          {topMover.logo ? (
-            <img src={topMover.logo} alt={topMover.symbol} />
-          ) : (
-            <span>{topMover.symbol[0]}</span>
-          )}
+                  {topMover ? (
+                    <div className="market-mover-content">
+                      {topMover.logo ? (
+                        <img src={topMover.logo} alt={topMover.symbol} />
+                      ) : (
+                        <span>{topMover.symbol[0]}</span>
+                      )}
 
-          <strong>{topMover.symbol}</strong>
-          <small className="profit-text">+{topMover.change.toFixed(2)}%</small>
-        </div>
-      ) : (
-        <strong>N/A</strong>
-      )}
-    </div>
+                      <strong>{topMover.symbol}</strong>
+                      <small className="profit-text">
+                        {Number(topMover.change) >= 0 ? "+" : ""}
+                        {Number(topMover.change).toFixed(2)}%
+                      </small>
+                    </div>
+                  ) : (
+                    <strong>N/A</strong>
+                  )}
+                </div>
 
-    <div className="market-mover-box">
-      <p>Down mover</p>
+                <div className="market-mover-box">
+                  <p>Down mover</p>
 
-      {downMover ? (
-        <div className="market-mover-content">
-          {downMover.logo ? (
-            <img src={downMover.logo} alt={downMover.symbol} />
-          ) : (
-            <span>{downMover.symbol[0]}</span>
-          )}
+                  {downMover ? (
+                    <div className="market-mover-content">
+                      {downMover.logo ? (
+                        <img src={downMover.logo} alt={downMover.symbol} />
+                      ) : (
+                        <span>{downMover.symbol[0]}</span>
+                      )}
 
-          <strong>{downMover.symbol}</strong>
-          <small className="loss-text">{downMover.change.toFixed(2)}%</small>
-        </div>
-      ) : (
-        <strong>N/A</strong>
-      )}
-    </div>
+                      <strong>{downMover.symbol}</strong>
+                      <small className="loss-text">
+                        {Number(downMover.change).toFixed(2)}%
+                      </small>
+                    </div>
+                  ) : (
+                    <strong>N/A</strong>
+                  )}
+                </div>
 
-    <div>
-      <p>Market status</p>
-      <strong className={marketStatus?.isOpen ? "profit-text" : "loss-text"}>
-        {marketStatus?.isOpen ? "Market Open" : "Market Closed"}
-      </strong>
-    </div>
-  </div>
+                <div>
+                  <p>Market status</p>
+                  <strong className={marketStatus?.isOpen ? "profit-text" : "loss-text"}>
+                    {marketStatus?.isOpen ? "Market Open" : "Market Closed"}
+                  </strong>
+                </div>
+              </div>
 
-  <h3>Latest market news</h3>
+              <h3>Latest market news</h3>
 
-  {marketNews.length === 0 ? (
-    <p>No market news available right now.</p>
-  ) : (
-    <div className="market-news-list">
-      {marketNews.map((news) => (
-        <a
-          key={news.id}
-          href={news.url}
-          target="_blank"
-          rel="noreferrer"
-          className="market-news-item"
-        >
-          <strong>{news.headline}</strong>
-          <p>{news.summary?.slice(0, 120)}...</p>
-        </a>
-      ))}
-    </div>
-  )}
-</div>
+              {marketNews.length === 0 ? (
+                <p>No market news available right now.</p>
+              ) : (
+                <div className="market-news-list">
+                  {marketNews.map((news) => (
+                    <a
+                      key={news.id || news.url}
+                      href={news.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="market-news-item"
+                    >
+                      <strong>{news.headline}</strong>
+                      <p>{news.summary?.slice(0, 120)}...</p>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="trade-market-right">

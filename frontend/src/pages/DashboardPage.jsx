@@ -3,7 +3,72 @@ import logo from "../assets/logo.png";
 import Chart from "../components/Chart";
 import Topbar from "../components/Topbar";
 import TradeCard from "../components/TradeCard";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+
+const DEFAULT_WATCHLIST_SYMBOLS = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN"];
+
+function normaliseWatchlistValue(value) {
+  if (!value) return [];
+
+  try {
+    const parsed = JSON.parse(value);
+
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((item) => {
+          if (typeof item === "string") return item;
+          return item?.symbol || item?.stock_symbol || item?.ticker || "";
+        })
+        .filter(Boolean);
+    }
+  } catch {
+    // If it is not JSON, treat it like a comma separated list: AAPL,TSLA,NVDA
+  }
+
+  return String(value)
+    .split(",")
+    .map((symbol) => symbol.trim())
+    .filter(Boolean);
+}
+
+function getSavedWatchlistSymbols(userId) {
+  const possibleKeys = [
+    `watchlist_${userId}`,
+    `ips_watchlist_${userId}`,
+    `stock_watchlist_${userId}`,
+    "watchlist",
+    "stockWatchlist",
+    "watchlistStocks",
+  ];
+
+  for (const key of possibleKeys) {
+    const rawValue = localStorage.getItem(key);
+    const symbols = normaliseWatchlistValue(rawValue)
+      .map((symbol) => symbol.toUpperCase())
+      .filter(Boolean);
+
+    if (symbols.length > 0) {
+      return [...new Set(symbols)];
+    }
+  }
+
+  return DEFAULT_WATCHLIST_SYMBOLS;
+}
+
+function getEconomicEventUrl(event) {
+  if (event?.url) return event.url;
+  if (event?.link) return event.link;
+  if (event?.sourceUrl) return event.sourceUrl;
+
+  const query = [event?.country, event?.event, event?.indicator, "market news"]
+    .filter(Boolean)
+    .join(" ");
+
+  return `https://www.google.com/search?tbm=nws&q=${encodeURIComponent(
+    query || "economic calendar market news"
+  )}`;
+}
 
 function DashboardPage() {
   const user = JSON.parse(localStorage.getItem("user"));
@@ -11,21 +76,12 @@ function DashboardPage() {
   const [portfolioData, setPortfolioData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const [tradeType, setTradeType] = useState("BUY");
-  const [stockSymbol, setStockSymbol] = useState("");
-  const [selectedStock, setSelectedStock] = useState(null);
-  const [quantity, setQuantity] = useState("");
-  const [amount, setAmount] = useState("");
-
-  const [searchResults, setSearchResults] = useState([]);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [stockPrice, setStockPrice] = useState(0);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [priceLoading, setPriceLoading] = useState(false);
-
   const [holdingPrices, setHoldingPrices] = useState({});
   const [holdingsValueLoading, setHoldingsValueLoading] = useState(false);
 
+  const [dashboardWatchlistSymbols, setDashboardWatchlistSymbols] = useState(() =>
+    getSavedWatchlistSymbols(user?.id)
+  );
   const [watchlistData, setWatchlistData] = useState([]);
   const [watchlistLoading, setWatchlistLoading] = useState(true);
 
@@ -33,9 +89,7 @@ function DashboardPage() {
   const [economicLoading, setEconomicLoading] = useState(true);
 
   const [hoveredChartPoint, setHoveredChartPoint] = useState(null);
-
-  const searchBoxRef = useRef(null);
-  const watchlistSymbols = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN"];
+  const [chartRefreshKey, setChartRefreshKey] = useState(0);
 
   const holdings = portfolioData?.holdings || [];
   const cashBalance = portfolioData?.portfolio?.cashBalance
@@ -43,11 +97,27 @@ function DashboardPage() {
     : 0;
   const transactions = portfolioData?.transactions || [];
 
-  const ownedStocks = holdings.map((holding) => ({
-    symbol: holding.stock_symbol,
-    description: `Owned: ${Number(holding.quantity).toFixed(4)} shares`,
-    ownedQuantity: Number(holding.quantity),
-  }));
+  const formatCurrency = (value) =>
+    `$${Number(value || 0).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+
+  useEffect(() => {
+    const syncWatchlistFromLocalStorage = () => {
+      setDashboardWatchlistSymbols(getSavedWatchlistSymbols(user?.id));
+    };
+
+    syncWatchlistFromLocalStorage();
+
+    window.addEventListener("storage", syncWatchlistFromLocalStorage);
+    window.addEventListener("focus", syncWatchlistFromLocalStorage);
+
+    return () => {
+      window.removeEventListener("storage", syncWatchlistFromLocalStorage);
+      window.removeEventListener("focus", syncWatchlistFromLocalStorage);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     const fetchPortfolio = async () => {
@@ -71,14 +141,21 @@ function DashboardPage() {
         setWatchlistLoading(true);
 
         const quoteResults = await Promise.all(
-          watchlistSymbols.map(async (symbol) => {
-            const response = await fetch(`/api/stocks/quote/${symbol}`);
-            const data = await response.json();
+          dashboardWatchlistSymbols.map(async (symbol) => {
+            const [quoteResponse, profileResponse] = await Promise.all([
+              fetch(`/api/stocks/quote/${symbol}`),
+              fetch(`/api/stocks/profile/${symbol}`),
+            ]);
+
+            const quoteData = await quoteResponse.json();
+            const profileData = await profileResponse.json();
 
             return {
               symbol,
-              current: Number(data.c) || 0,
-              percentChange: Number(data.dp) || 0,
+              current: Number(quoteData.c) || 0,
+              percentChange: Number(quoteData.dp) || 0,
+              logo: profileData?.logo || null,
+              name: profileData?.name || "US Equity",
             };
           })
         );
@@ -86,13 +163,14 @@ function DashboardPage() {
         setWatchlistData(quoteResults);
       } catch (error) {
         console.error("Error fetching watchlist:", error);
+        setWatchlistData([]);
       } finally {
         setWatchlistLoading(false);
       }
     };
 
     fetchWatchlist();
-  }, []);
+  }, [dashboardWatchlistSymbols]);
 
   useEffect(() => {
     const fetchEconomicEvents = async () => {
@@ -113,61 +191,33 @@ function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (searchBoxRef.current && !searchBoxRef.current.contains(event.target)) {
-        setShowDropdown(false);
-      }
-    };
+    if (!user?.id) return;
 
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    const fetchSearchResults = async () => {
-      if (!stockSymbol.trim()) {
-        setSearchResults([]);
-        return;
-      }
-
-      if (tradeType === "SELL") {
-        const filteredHoldings = ownedStocks.filter((item) =>
-          item.symbol.toLowerCase().includes(stockSymbol.toLowerCase())
-        );
-        setSearchResults(filteredHoldings);
-        setShowDropdown(true);
-        return;
-      }
-
-      if (selectedStock?.symbol === stockSymbol.trim().toUpperCase()) {
-        setSearchResults([]);
-        return;
-      }
-
+    const savePortfolioSnapshot = async () => {
       try {
-        setSearchLoading(true);
-        const response = await fetch(
-          `/api/stocks/search?q=${encodeURIComponent(stockSymbol)}`
-        );
-        const data = await response.json();
+        const response = await fetch(`/api/history/snapshot/${user.id}`, {
+          method: "POST",
+        });
 
-        const filtered = Array.isArray(data)
-          ? data.filter((item) => item.symbol && item.description)
-          : [];
+        if (!response.ok) {
+          console.error("Snapshot save failed");
+          return;
+        }
 
-        setSearchResults(filtered);
-        setShowDropdown(true);
+        setChartRefreshKey((prev) => prev + 1);
       } catch (error) {
-        console.error("Search error:", error);
-        setSearchResults([]);
-      } finally {
-        setSearchLoading(false);
+        console.error("Snapshot error:", error);
       }
     };
 
-    const delay = setTimeout(fetchSearchResults, 300);
-    return () => clearTimeout(delay);
-  }, [stockSymbol, selectedStock, tradeType, portfolioData]);
+    const firstSnapshot = setTimeout(savePortfolioSnapshot, 3000);
+    const interval = setInterval(savePortfolioSnapshot, 10 * 60 * 1000);
+
+    return () => {
+      clearTimeout(firstSnapshot);
+      clearInterval(interval);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     const fetchHoldingPrices = async () => {
@@ -199,33 +249,10 @@ function DashboardPage() {
     fetchHoldingPrices();
   }, [portfolioData]);
 
-  const fetchQuote = async (symbol) => {
-    try {
-      setPriceLoading(true);
-      const response = await fetch(`/api/stocks/quote/${symbol}`);
-      const data = await response.json();
-
-      const livePrice = Number(data.c) || 0;
-      setStockPrice(livePrice);
-
-      if (quantity) {
-        setAmount((Number(quantity) * livePrice).toFixed(2));
-      } else if (amount) {
-        setQuantity((Number(amount) / livePrice).toFixed(4));
-      }
-    } catch (error) {
-      console.error("Quote error:", error);
-      setStockPrice(0);
-    } finally {
-      setPriceLoading(false);
-    }
-  };
-
-  const handleSelectStock = (stock) => {
-    setSelectedStock(stock);
-    setStockSymbol(stock.symbol);
-    setShowDropdown(false);
-    fetchQuote(stock.symbol);
+  const refreshPortfolio = async () => {
+    const refreshed = await fetch(`/api/portfolio/${user.id}`);
+    const refreshedData = await refreshed.json();
+    setPortfolioData(refreshedData);
   };
 
   const holdingsMarketValue = holdings.reduce((total, holding) => {
@@ -244,141 +271,22 @@ function DashboardPage() {
   }, 0);
 
   const unrealizedGain = holdingsMarketValue - totalCostBasis;
+  const unrealizedGainPercent = totalCostBasis
+    ? (unrealizedGain / totalCostBasis) * 100
+    : 0;
 
-  const parsedQuantity = Number(quantity) || 0;
-  const parsedAmount = Number(amount) || 0;
+  const marketMood = useMemo(() => {
+    const positiveCount = watchlistData.filter(
+      (stock) => stock.percentChange >= 0
+    ).length;
 
-  const subtotal = parsedAmount > 0 ? parsedAmount : stockPrice * parsedQuantity;
-  const fee = subtotal * 0.005;
-  const total = tradeType === "BUY" ? subtotal + fee : subtotal - fee;
+    if (watchlistLoading) return "Loading";
+    if (watchlistData.length === 0) return "Empty";
 
-  const selectedHolding =
-    tradeType === "SELL"
-      ? holdings.find((h) => h.stock_symbol === selectedStock?.symbol)
-      : null;
-
-  const maxSellQuantity = selectedHolding ? Number(selectedHolding.quantity) : 0;
-
-  const orderMessage = useMemo(() => {
-    if (!stockSymbol.trim()) {
-      return tradeType === "BUY"
-        ? "Search and select a stock symbol."
-        : "Select a stock from your holdings.";
-    }
-
-    if (!stockPrice) return "Waiting for live stock price.";
-
-    if (!parsedQuantity && !parsedAmount) {
-      return "Enter quantity or amount to preview the order.";
-    }
-
-    if (tradeType === "BUY" && total > cashBalance) {
-      return "Insufficient balance for this order.";
-    }
-
-    if (tradeType === "SELL" && parsedQuantity > maxSellQuantity) {
-      return `You only own ${maxSellQuantity.toFixed(4)} shares.`;
-    }
-
-    return `${tradeType} order preview ready.`;
-  }, [
-    stockSymbol,
-    stockPrice,
-    parsedQuantity,
-    parsedAmount,
-    tradeType,
-    total,
-    cashBalance,
-    maxSellQuantity,
-  ]);
-
-  const handleQuantityChange = (e) => {
-    const value = e.target.value;
-    setQuantity(value);
-
-    const numericValue = Number(value);
-    if (!value || numericValue <= 0 || !stockPrice) {
-      setAmount("");
-      return;
-    }
-
-    setAmount((numericValue * stockPrice).toFixed(2));
-  };
-
-  const handleAmountChange = (e) => {
-    const value = e.target.value;
-    setAmount(value);
-
-    const numericValue = Number(value);
-    if (!value || numericValue <= 0 || !stockPrice) {
-      setQuantity("");
-      return;
-    }
-
-    setQuantity((numericValue / stockPrice).toFixed(4));
-  };
-
-  const refreshPortfolio = async () => {
-    const refreshed = await fetch(`/api/portfolio/${user.id}`);
-    const refreshedData = await refreshed.json();
-    setPortfolioData(refreshedData);
-  };
-
-  const handlePreviewOrder = async () => {
-    if (!selectedStock || !stockPrice || (!quantity && !amount)) {
-      alert("Please select a stock and enter quantity or amount.");
-      return;
-    }
-
-    if (tradeType === "SELL" && Number(quantity) > maxSellQuantity) {
-      alert(`You only own ${maxSellQuantity.toFixed(4)} shares.`);
-      return;
-    }
-
-    try {
-      const endpoint =
-        tradeType === "BUY" ? "/api/trade/buy" : "/api/trade/sell";
-
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          userId: user.id,
-          stockSymbol: selectedStock.symbol,
-          quantity: Number(quantity),
-          pricePerShare: Number(stockPrice),
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        alert(data.message || `${tradeType} failed`);
-        return;
-      }
-
-      alert(
-        tradeType === "BUY"
-          ? "Stock purchased successfully!"
-          : "Stock sold successfully!"
-      );
-
-      await refreshPortfolio();
-
-      setStockSymbol("");
-      setSelectedStock(null);
-      setStockPrice(0);
-      setQuantity("");
-      setAmount("");
-      setSearchResults([]);
-      setShowDropdown(false);
-    } catch (error) {
-      console.error(error);
-      alert("Could not connect to server.");
-    }
-  };
+    return positiveCount >= Math.ceil(watchlistData.length / 2)
+      ? "Positive"
+      : "Mixed";
+  }, [watchlistData, watchlistLoading]);
 
   return (
     <div className="dashboard-page">
@@ -389,11 +297,21 @@ function DashboardPage() {
         </div>
 
         <nav className="sidebar-nav">
-          <a className="nav-item active" href="/dashboard">Dashboard</a>
-      <a className="nav-item" href="/portfolio">Portfolio</a>
-          <a className="nav-item" href="/trade">Market</a>
-          <a className="nav-item" href="/history">Transactions</a>
-          <a className="nav-item" href="/settings">Settings</a>
+          <a className="nav-item active" href="/dashboard">
+            Dashboard
+          </a>
+          <a className="nav-item" href="/portfolio">
+            Portfolio
+          </a>
+          <a className="nav-item" href="/trade">
+            Market
+          </a>
+          <a className="nav-item" href="/history">
+            Transactions
+          </a>
+          <a className="nav-item" href="/settings">
+            Settings
+          </a>
         </nav>
 
         <div className="sidebar-card">
@@ -405,50 +323,66 @@ function DashboardPage() {
         </div>
       </aside>
 
-      <main className="main-content">
-       <Topbar />
+      <main className="main-content dashboard-main-redesign">
+        <Topbar />
 
-        <section className="stats-row">
-          <div className="stat-card">
-            <p className="stat-label">Portfolio Value</p>
+        <section className="stats-row professional-stats-row">
+          <Link
+            to="/portfolio"
+            className="stat-card metric-card metric-card-featured metric-link-card"
+          >
+            <div className="metric-card-top">
+              <span className="metric-icon">◆</span>
+              <p className="stat-label">Invested in Market</p>
+            </div>
             <h3>
               {loading || holdingsValueLoading
                 ? "Loading..."
-                : `$${portfolioValue.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}`}
+                : formatCurrency(holdingsMarketValue)}
             </h3>
-            <span className="stat-neutral">Cash + live holdings</span>
-          </div>
+            <span className="stat-neutral">Live value of your holdings</span>
+          </Link>
 
-          <div className="stat-card">
-            <p className="stat-label">Unrealized Gain/Loss</p>
+          <Link to="/portfolio" className="stat-card metric-card metric-link-card">
+            <div className="metric-card-top">
+              <span className="metric-icon">$</span>
+              <p className="stat-label">Cash Balance</p>
+            </div>
+            <h3>{loading ? "Loading..." : formatCurrency(cashBalance)}</h3>
+            <span className="stat-neutral">Ready to invest</span>
+          </Link>
+
+          <Link to="/portfolio" className="stat-card metric-card metric-link-card">
+            <div className="metric-card-top">
+              <span className="metric-icon">↗</span>
+              <p className="stat-label">Unrealized Gain/Loss</p>
+            </div>
             <h3>
               {loading || holdingsValueLoading
                 ? "Loading..."
-                : `$${unrealizedGain.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}`}
+                : formatCurrency(unrealizedGain)}
             </h3>
             <span className={unrealizedGain >= 0 ? "stat-positive" : "stat-loss"}>
-              {unrealizedGain >= 0 ? "Above cost basis" : "Below cost basis"}
+              {unrealizedGain >= 0 ? "+" : ""}
+              {unrealizedGainPercent.toFixed(2)}% vs cost
             </span>
-          </div>
+          </Link>
 
-          <div className="stat-card">
-            <p className="stat-label">Assets Held</p>
+          <Link to="/history" className="stat-card metric-card metric-link-card">
+            <div className="metric-card-top">
+              <span className="metric-icon">▣</span>
+              <p className="stat-label">Assets Held</p>
+            </div>
             <h3>{loading ? "Loading..." : `${assetsHeld} Stocks`}</h3>
             <span className="stat-neutral">
               {transactions.length} Transactions
             </span>
-          </div>
+          </Link>
         </section>
 
-        <section className="dashboard-grid">
+        <section className="dashboard-grid professional-dashboard-grid">
           <div className="dashboard-center">
-            <div className="panel large-panel chart-panel">
+            <div className="panel large-panel chart-panel pro-panel">
               <div className="chart-header">
                 <div>
                   <p className="chart-subtitle">
@@ -458,50 +392,63 @@ function DashboardPage() {
                   <h2>
                     {loading || holdingsValueLoading
                       ? "Loading..."
-                      : `$${(
-                          hoveredChartPoint?.value || portfolioValue
-                        ).toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}`}
+                      : formatCurrency(hoveredChartPoint?.value || portfolioValue)}
                   </h2>
                 </div>
+
+                <span className="panel-badge">Live portfolio</span>
               </div>
 
               <Chart
                 userId={user.id}
                 portfolioValue={portfolioValue}
+                refreshKey={chartRefreshKey}
                 onHoverPoint={setHoveredChartPoint}
                 onLeaveChart={() => setHoveredChartPoint(null)}
-                />
+              />
             </div>
 
-            <div className="bottom-row">
-              <div className="panel small-panel">
-                <h3>Economic Events</h3>
+            <div className="bottom-row professional-bottom-row">
+              <div className="panel small-panel insight-panel economic-panel-redesign">
+                <div className="panel-title-row">
+                  <div>
+                    <p className="panel-kicker">Macro Calendar</p>
+                    <h3>Economic Events</h3>
+                  </div>
+                  <span className="panel-badge">
+                    {economicEvents.length || 0} Events
+                  </span>
+                </div>
 
                 {economicLoading ? (
                   <p className="placeholder-text">Loading economic events...</p>
                 ) : economicEvents.length === 0 ? (
                   <p className="placeholder-text">No events available right now.</p>
                 ) : (
-                  <div className="events-list">
+                  <div className="events-list pro-events-list">
                     {economicEvents.map((event, index) => (
-                      <div key={index} className="event-row">
-                        <div className="event-left">
-                          <p className="event-title">
-                            {event.event || "Economic Event"}
-                          </p>
-                          <p className="event-country">
-                            {event.country || "N/A"} •{" "}
-                            {event.indicator || "N/A"}
-                          </p>
+                      <a
+                        key={index}
+                        href={getEconomicEventUrl(event)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="event-row pro-event-row event-clickable"
+                        title="Open related market news"
+                      >
+                        <div className="event-left pro-event-left">
+                          <span className="event-dot"></span>
+                          <div>
+                            <p className="event-title">
+                              {event.event || "Economic Event"}
+                            </p>
+                            <p className="event-country">
+                              {event.country || "N/A"} • {event.indicator || "N/A"}
+                            </p>
+                          </div>
                         </div>
 
                         <div className="event-right">
-                          <p className="event-time">
-                            {event.time ? event.time : "TBA"}
-                          </p>
+                          <p className="event-time">{event.time || "TBA"}</p>
                           <p
                             className={`event-impact ${
                               event.impact === "High"
@@ -514,28 +461,60 @@ function DashboardPage() {
                             {event.impact || "Low"}
                           </p>
                         </div>
-                      </div>
+                      </a>
                     ))}
                   </div>
                 )}
               </div>
 
-              <div className="panel small-panel">
-                <h3>Markets</h3>
+              <div className="panel small-panel insight-panel market-panel-redesign">
+                <div className="panel-title-row">
+                  <div>
+                    <p className="panel-kicker">Watchlist</p>
+                    <h3>Markets</h3>
+                  </div>
+                  <span
+                    className={`panel-badge ${
+                      marketMood === "Positive" ? "positive-badge" : ""
+                    }`}
+                  >
+                    {marketMood}
+                  </span>
+                </div>
+
                 {watchlistLoading ? (
                   <p className="placeholder-text">Loading market data...</p>
+                ) : watchlistData.length === 0 ? (
+                  <p className="placeholder-text">No watchlist stocks found.</p>
                 ) : (
-                  <div className="watchlist">
+                  <div className="watchlist pro-watchlist">
                     {watchlistData.map((stock) => (
-                      <div key={stock.symbol} className="watchlist-row">
-                        <div>
-                          <p className="watchlist-symbol">{stock.symbol}</p>
-                          <p className="watchlist-name">US Equity</p>
+                      <Link
+                        key={stock.symbol}
+                        to={`/stocks/${stock.symbol}`}
+                        className="watchlist-row pro-watchlist-row watchlist-clickable"
+                      >
+                        <div className="watchlist-left-pro">
+                          {stock.logo ? (
+                            <img
+                              src={stock.logo}
+                              alt={`${stock.symbol} logo`}
+                              className="stock-avatar stock-avatar-img"
+                            />
+                          ) : (
+                            <span className="stock-avatar">
+                              {stock.symbol.charAt(0)}
+                            </span>
+                          )}
+                          <div>
+                            <p className="watchlist-symbol">{stock.symbol}</p>
+                            <p className="watchlist-name">{stock.name || "US Equity"}</p>
+                          </div>
                         </div>
 
                         <div className="watchlist-right">
                           <p className="watchlist-price">
-                            ${stock.current.toFixed(2)}
+                            {formatCurrency(stock.current)}
                           </p>
                           <p
                             className={
@@ -548,7 +527,7 @@ function DashboardPage() {
                             {stock.percentChange.toFixed(2)}%
                           </p>
                         </div>
-                      </div>
+                      </Link>
                     ))}
                   </div>
                 )}
@@ -556,21 +535,27 @@ function DashboardPage() {
             </div>
           </div>
 
-          <div className="dashboard-right">
+          <div className="dashboard-right professional-dashboard-right">
             <TradeCard
-  user={user}
-  portfolioData={portfolioData}
-  cashBalance={cashBalance}
-  onTradeComplete={refreshPortfolio}
-/>
+              user={user}
+              portfolioData={portfolioData}
+              cashBalance={cashBalance}
+              onTradeComplete={refreshPortfolio}
+            />
 
-            <div className="panel right-panel thin">
-              <h3>Order Notes</h3>
-              <div className="order-notes">
-                <p>• Search for a stock by symbol</p>
-                <p>• In Sell mode, only your owned stocks appear</p>
-                <p>• Enter quantity or amount to preview order value</p>
-                <p>• A trading fee will be applied</p>
+            <div className="panel right-panel thin order-notes-panel">
+              <div className="panel-title-row">
+                <div>
+                  <p className="panel-kicker">Trading Guide</p>
+                  <h3>Order Notes</h3>
+                </div>
+              </div>
+
+              <div className="order-notes professional-order-notes">
+                <p>Search by stock symbol before placing an order.</p>
+                <p>Sell mode only displays stocks you already own.</p>
+                <p>Quantity and amount automatically calculate each other.</p>
+                <p>Every order includes a 0.50% simulator trading fee.</p>
               </div>
             </div>
           </div>

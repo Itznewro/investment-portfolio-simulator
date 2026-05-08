@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Loader from "../components/Loader";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Bell,
@@ -286,10 +287,10 @@ function SettingsPage() {
         {savedMessage && <p className="settings-saved-msg">{savedMessage}</p>}
 
         {loadingSettings ? (
-          <section className="settings-card">
-            <p className="placeholder-text">Loading settings...</p>
-          </section>
-        ) : (
+  <section className="settings-card">
+    <Loader size="medium" />
+  </section>
+) : (
           <section className="settings-grid">
             <div className="settings-left">
               <div className="settings-card profile-card">

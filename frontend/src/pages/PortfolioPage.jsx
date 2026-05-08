@@ -1,408 +1,549 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-} from "recharts";
+import { Link, useNavigate } from "react-router-dom";
+import { SlidersHorizontal, Star } from "lucide-react";
 import Topbar from "../components/Topbar";
-import { Search, Settings, Bell } from "lucide-react";
 import logo from "../assets/logo.png";
 import "../App.css";
 
-const logoMap = {
-  AAPL: "apple.com",
-  TSLA: "tesla.com",
-  NVDA: "nvidia.com",
-  META: "meta.com",
-  MSFT: "microsoft.com",
-  AMZN: "amazon.com",
-  GOOGL: "google.com",
-  GOOG: "google.com",
+const STOCK_GROUPS = {
+  top: ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "NFLX", "AMD", "INTC", "BABA", "ORCL", "CRM"],
+  gainers: ["CRM", "ORCL", "NVDA", "META", "MSFT", "GOOGL", "AMZN", "NFLX", "TSLA", "AMD", "INTC", "BABA"],
+  movers: ["TSLA", "NVDA", "AMD", "AAPL", "META", "BABA", "NFLX", "INTC", "CRM", "ORCL", "MSFT", "AMZN"],
 };
 
-function PortfolioPage() {
-  const user = JSON.parse(localStorage.getItem("user"));
+const COMPANY_FALLBACKS = {
+  AAPL: "Apple Inc",
+  MSFT: "Microsoft Corp",
+  NVDA: "NVIDIA Corp",
+  TSLA: "Tesla Inc",
+  AMZN: "Amazon.com Inc",
+  META: "Meta Platforms Inc",
+  GOOGL: "Alphabet Inc",
+  NFLX: "Netflix Inc",
+  AMD: "Advanced Micro Devices Inc",
+  INTC: "Intel Corp",
+  BABA: "Alibaba Group Holding Ltd",
+  ORCL: "Oracle Corp",
+  CRM: "Salesforce Inc",
+};
 
-  const [portfolioData, setPortfolioData] = useState(null);
-  const [holdingPrices, setHoldingPrices] = useState({});
-  const [loading, setLoading] = useState(true);
+const TAB_LABELS = {
+  top: "Top Stocks",
+  gainers: "Top Gainers",
+  movers: "Market Movers",
+};
+
+function formatMoney(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return "N/A";
+
+  return `$${number.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function readWatchlist(key) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Request failed: ${url}`);
+  return response.json();
+}
+
+async function fetchStockData(symbol) {
+  try {
+    const [quoteResult, profileResult] = await Promise.allSettled([
+      fetchJson(`/api/stocks/quote/${symbol}`),
+      fetchJson(`/api/stocks/profile/${symbol}`),
+    ]);
+
+    const quote =
+      quoteResult.status === "fulfilled" && quoteResult.value
+        ? quoteResult.value
+        : {};
+
+    const profile =
+      profileResult.status === "fulfilled" && profileResult.value
+        ? profileResult.value
+        : {};
+
+    const currentPrice = Number(quote.c) || 0;
+    const previousClose = Number(quote.pc) || 0;
+
+    const dayChangePercent =
+      Number.isFinite(Number(quote.dp)) && Number(quote.dp) !== 0
+        ? Number(quote.dp)
+        : previousClose > 0 && currentPrice > 0
+        ? ((currentPrice - previousClose) / previousClose) * 100
+        : 0;
+
+    return {
+      symbol,
+      name: profile.name || COMPANY_FALLBACKS[symbol] || symbol,
+      logo: profile.logo || null,
+      price: currentPrice,
+      previousClose,
+      dayChangePercent,
+      loaded: true,
+    };
+  } catch (error) {
+    console.error(`Failed loading ${symbol}:`, error);
+
+    return {
+      symbol,
+      name: COMPANY_FALLBACKS[symbol] || symbol,
+      logo: null,
+      price: 0,
+      previousClose: 0,
+      dayChangePercent: 0,
+      loaded: true,
+      failed: true,
+    };
+  }
+}
+
+function TradePage() {
+  const user = JSON.parse(localStorage.getItem("user"));
+  const navigate = useNavigate();
+
+  const [activeTab, setActiveTab] = useState("top");
+  const [visibleCount, setVisibleCount] = useState(5);
+  const [stocksBySymbol, setStocksBySymbol] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
+  const [marketNews, setMarketNews] = useState([]);
+  const [marketStatus, setMarketStatus] = useState(null);
+
+  const watchlistKey = `marketWatchlist:${user?.id || "guest"}`;
+
+  const [watchlist, setWatchlist] = useState(() => readWatchlist(watchlistKey));
 
   useEffect(() => {
-    const fetchPortfolio = async () => {
-      try {
-        const response = await fetch(`/api/portfolio/${user.id}`);
-        const data = await response.json();
-        setPortfolioData(data);
-      } catch (error) {
-        console.error("Portfolio error:", error);
-      } finally {
+    setWatchlist(readWatchlist(watchlistKey));
+  }, [watchlistKey]);
+
+  useEffect(() => {
+    setVisibleCount(5);
+  }, [activeTab, showWatchlistOnly]);
+
+  const activeSymbols = useMemo(() => {
+    const symbols = STOCK_GROUPS[activeTab] || STOCK_GROUPS.top;
+
+    if (showWatchlistOnly) {
+      return symbols.filter((symbol) => watchlist.includes(symbol));
+    }
+
+    return symbols;
+  }, [activeTab, showWatchlistOnly, watchlist]);
+
+  const visibleSymbols = useMemo(() => {
+    return activeSymbols.slice(0, visibleCount);
+  }, [activeSymbols, visibleCount]);
+
+  const visibleSymbolsKey = visibleSymbols.join(",");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadStocks = async () => {
+      if (!visibleSymbols.length) {
         setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+
+        const missingSymbols = visibleSymbols.filter(
+          (symbol) => !stocksBySymbol[symbol]
+        );
+
+        if (missingSymbols.length === 0) return;
+
+        const loadedStocks = await Promise.all(
+          missingSymbols.map((symbol) => fetchStockData(symbol))
+        );
+
+        if (cancelled) return;
+
+        const nextData = {};
+        loadedStocks.forEach((stock) => {
+          nextData[stock.symbol] = stock;
+        });
+
+        setStocksBySymbol((prev) => ({
+          ...prev,
+          ...nextData,
+        }));
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     };
 
-    if (user?.id) fetchPortfolio();
-  }, [user?.id]);
+    loadStocks();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleSymbolsKey]);
 
   useEffect(() => {
-    const fetchPrices = async () => {
-      const holdings = portfolioData?.holdings || [];
-      if (!holdings.length) return;
+    const fetchMarketSideData = async () => {
+      try {
+        const [statusResult, newsResult] = await Promise.allSettled([
+          fetchJson("/api/stocks/market/status"),
+          fetchJson("/api/stocks/market/news"),
+        ]);
 
-      const prices = await Promise.all(
-        holdings.map(async (holding) => {
-          const symbol = holding.stock_symbol;
-          const response = await fetch(`/api/stocks/quote/${symbol}`);
-          const data = await response.json();
-          return [symbol, Number(data.c) || 0];
-        })
-      );
+        if (statusResult.status === "fulfilled") {
+          setMarketStatus(statusResult.value);
+        }
 
-      setHoldingPrices(Object.fromEntries(prices));
+        if (newsResult.status === "fulfilled") {
+          setMarketNews(Array.isArray(newsResult.value) ? newsResult.value : []);
+        }
+      } catch (error) {
+        console.error("Market side data error:", error);
+      }
     };
 
-    fetchPrices();
-  }, [portfolioData]);
+    fetchMarketSideData();
+  }, []);
 
-  const holdings = portfolioData?.holdings || [];
-  const cashBalance = Number(portfolioData?.portfolio?.cashBalance || 0);
-
-  const enrichedHoldings = useMemo(() => {
-    return holdings.map((holding) => {
-      const symbol = holding.stock_symbol;
-      const quantity = Number(holding.quantity) || 0;
-      const avgBuyPrice = Number(holding.average_buy_price) || 0;
-      const currentPrice = holdingPrices[symbol] || avgBuyPrice;
-
-      const marketValue = quantity * currentPrice;
-      const costBasis = quantity * avgBuyPrice;
-      const profitLoss = marketValue - costBasis;
-      const profitLossPercent =
-        costBasis > 0 ? (profitLoss / costBasis) * 100 : 0;
-
-      return {
-        symbol,
-        quantity,
-        avgBuyPrice,
-        currentPrice,
-        marketValue,
-        costBasis,
-        profitLoss,
-        profitLossPercent,
-      };
+  const stockRows = useMemo(() => {
+    const rows = visibleSymbols.map((symbol) => {
+      return (
+        stocksBySymbol[symbol] || {
+          symbol,
+          name: COMPANY_FALLBACKS[symbol] || symbol,
+          logo: null,
+          price: 0,
+          previousClose: 0,
+          dayChangePercent: 0,
+          loaded: false,
+        }
+      );
     });
-  }, [holdings, holdingPrices]);
 
-  const totalHoldingsValue = enrichedHoldings.reduce(
-    (sum, item) => sum + item.marketValue,
-    0
-  );
+    if (activeTab === "gainers") {
+      return [...rows].sort(
+        (a, b) => Number(b.dayChangePercent) - Number(a.dayChangePercent)
+      );
+    }
 
-  const totalPortfolioValue = cashBalance + totalHoldingsValue;
+    if (activeTab === "movers") {
+      return [...rows].sort(
+        (a, b) =>
+          Math.abs(Number(b.dayChangePercent)) -
+          Math.abs(Number(a.dayChangePercent))
+      );
+    }
 
-  const totalProfitLoss = enrichedHoldings.reduce(
-    (sum, item) => sum + item.profitLoss,
-    0
-  );
+    return rows;
+  }, [visibleSymbols, stocksBySymbol, activeTab]);
 
-  const pieData = [
-    { name: "Placed", value: totalHoldingsValue },
-    { name: "Available", value: cashBalance },
-  ];
+  const toggleWatchlist = (symbol) => {
+    setWatchlist((prev) => {
+      const exists = prev.includes(symbol);
 
-  const allocationData = enrichedHoldings.map((item) => ({
-    name: item.symbol,
-    value: Number(item.marketValue.toFixed(2)),
-  }));
+      const next = exists
+        ? prev.filter((item) => item !== symbol)
+        : [...prev, symbol];
 
-  const chartData =
-    enrichedHoldings.length > 0
-      ? enrichedHoldings.map((item, index) => ({
-          name: item.symbol,
-          value: Number(item.marketValue.toFixed(2)),
-          display: index + 1,
-        }))
-      : [
-          { name: "Start", value: 0 },
-          { name: "Now", value: 0 },
-        ];
-
-  const colors = ["#6741BF", "#7b5ce6", "#4f8cff", "#f59e0b", "#ef4444"];
-
-  const getLogoUrl = (symbol) => {
-    const domain = logoMap[symbol];
-    return domain ? `https://logo.clearbit.com/${domain}` : null;
+      localStorage.setItem(watchlistKey, JSON.stringify(next));
+      return next;
+    });
   };
 
+  const handleBrowseMore = () => {
+    setVisibleCount((prev) => Math.min(prev + 5, activeSymbols.length));
+  };
+
+  const handleBuyClick = (symbol) => {
+    navigate(`/stocks/${symbol}`);
+  };
+
+  const marketMover = stockRows.find((stock) => stock.loaded) || stockRows[0];
+
   return (
-    <div className="portfolio-shell">
-     <aside className="sidebar">
-  <div>
-    <div className="sidebar-logo">
-      <img src={logo} alt="logo" className="logo-img" />
-      <h2>IPSimulator</h2>
-    </div>
+    <div className="dashboard-page">
+      <aside className="sidebar">
+        <div>
+          <div className="sidebar-logo">
+            <img src={logo} alt="logo" className="logo-img" />
+            <h2>IPSimulator</h2>
+          </div>
 
-    <nav className="sidebar-nav">
-      <a className="nav-item" href="/dashboard">Dashboard</a>
-      <a className="nav-item active" href="/portfolio">Portfolio</a>
-      <a className="nav-item" href="/trade">Market</a>
-      <a className="nav-item" href="/history">Transactions</a>
-      <a className="nav-item" href="/settings">Settings</a>
-    </nav>
-  </div>
+          <nav className="sidebar-nav">
+            <Link className="nav-item" to="/dashboard">
+              Dashboard
+            </Link>
+            <Link className="nav-item" to="/portfolio">
+              Portfolio
+            </Link>
+            <Link className="nav-item active" to="/trade">
+              Market
+            </Link>
+            <Link className="nav-item" to="/history">
+              Transactions
+            </Link>
+            <Link className="nav-item" to="/settings">
+              Settings
+            </Link>
+          </nav>
+        </div>
 
-  <div className="sidebar-card">
-    <p className="sidebar-card-title">Portfolio View</p>
-    <p className="sidebar-card-text">
-      Track your holdings and unrealized returns.
-    </p>
-    <button className="sidebar-card-btn">Explore</button>
-  </div>
-</aside>
+        <div className="sidebar-card">
+          <p className="sidebar-card-title">Market View</p>
+          <p className="sidebar-card-text">
+            Browse stocks, track prices, and build your watchlist.
+          </p>
+          <button className="sidebar-card-btn">Explore</button>
+        </div>
+      </aside>
 
       <main className="main-content">
-       <Topbar />
+        <Topbar title="Market" />
 
-        <section className="portfolio-title-row">
-        </section>
+        <section className="trade-page-grid">
+          <div className="trade-market-left">
+            <div className="trade-market-card">
+              <h1>Stocks</h1>
 
-        <section className="portfolio-main-grid">
-          <div className="portfolio-left">
-            <div className="portfolio-overview-card-v2">
-              <h3>Overview</h3>
+              <div className="trade-filter-tabs">
+                <button
+                  className={`filter-icon-btn ${
+                    showWatchlistOnly ? "watchlist-filter-active" : ""
+                  }`}
+                  onClick={() => setShowWatchlistOnly((prev) => !prev)}
+                  title="Show watchlist only"
+                >
+                  <SlidersHorizontal size={18} />
+                </button>
 
-              <div className="overview-card-grid-v2">
-                <div className="overview-mini-card">
-                  <p>Total Balance</p>
-                  <h2>
-                    ${totalPortfolioValue.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </h2>
-
-                  <ResponsiveContainer width="100%" height={105}>
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        dataKey="value"
-                        innerRadius={32}
-                        outerRadius={45}
-                        paddingAngle={4}
-                      >
-                        {pieData.map((entry, index) => (
-                          <Cell key={entry.name} fill={colors[index]} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-
-                  <div className="overview-stat-row">
-                    <div>
-                      <span>Placed</span>
-                      <strong>${totalHoldingsValue.toFixed(2)}</strong>
-                    </div>
-                    <div>
-                      <span>Available</span>
-                      <strong>${cashBalance.toFixed(2)}</strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="overview-mini-card">
-                  <p>Unrealized Return</p>
-                  <h2 className={totalProfitLoss >= 0 ? "profit-text" : "loss-text"}>
-                    {totalProfitLoss >= 0 ? "+" : ""}$
-                    {totalProfitLoss.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </h2>
-
-                  <ResponsiveContainer width="100%" height={105}>
-                    <PieChart>
-                      <Pie
-                        data={allocationData}
-                        dataKey="value"
-                        innerRadius={32}
-                        outerRadius={45}
-                        paddingAngle={4}
-                      >
-                        {allocationData.map((entry, index) => (
-                          <Cell key={entry.name} fill={colors[index % colors.length]} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-
-                  <div className="overview-stat-row">
-                    <div>
-                      <span>Overall</span>
-                      <strong>
-                        {totalProfitLoss >= 0 ? "+" : ""}
-                        {totalPortfolioValue > 0
-                          ? ((totalProfitLoss / totalPortfolioValue) * 100).toFixed(2)
-                          : "0.00"}
-                        %
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Portfolio</span>
-                      <strong>{enrichedHoldings.length} stocks</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="my-assets-card-v2">
-              <div className="assets-header-v2">
-                <h3>My Assets</h3>
-                <select>
-                  <option>Stocks</option>
-                </select>
+                {Object.entries(TAB_LABELS).map(([key, label]) => (
+                  <button
+                    key={key}
+                    className={activeTab === key ? "active" : ""}
+                    onClick={() => setActiveTab(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
 
-              {loading ? (
-                <p className="placeholder-text">Loading portfolio...</p>
-              ) : enrichedHoldings.length === 0 ? (
-                <p className="placeholder-text">No holdings yet.</p>
+              <div className="stock-table-head">
+                <span>Name</span>
+                <span>Market price</span>
+                <span>Day change</span>
+                <span>Prev close</span>
+                <span></span>
+                <span></span>
+              </div>
+
+              {showWatchlistOnly && stockRows.length === 0 ? (
+                <p className="placeholder-text market-empty-text">
+                  No stocks in your watchlist yet. Click the star beside a stock
+                  to add it.
+                </p>
               ) : (
-                <div className="asset-list-v2">
-                  {enrichedHoldings.map((item) => {
-                    const logoUrl = getLogoUrl(item.symbol);
-                    const isProfit = item.profitLoss >= 0;
+                stockRows.map((stock) => {
+                  const isPositive = Number(stock.dayChangePercent) >= 0;
+                  const isWatched = watchlist.includes(stock.symbol);
 
-                    return (
-                      <div className="asset-row-v2" key={item.symbol}>
-                        <div className="asset-name-v2">
-                          {logoUrl ? (
+                  return (
+                    <div className="stock-list-row" key={stock.symbol}>
+                      <Link
+                        to={`/stocks/${stock.symbol}`}
+                        className="stock-list-name"
+                      >
+                        <div className="stock-avatar">
+                          {stock.logo && (
                             <img
-                              src={logoUrl}
-                              alt={item.symbol}
-                              onError={(e) => (e.currentTarget.style.display = "none")}
+                              src={stock.logo}
+                              alt={stock.symbol}
+                              onError={(event) => {
+                                event.currentTarget.style.display = "none";
+                                const fallback =
+                                  event.currentTarget.parentElement.querySelector(
+                                    ".stock-list-fallback"
+                                  );
+
+                                if (fallback) fallback.style.display = "flex";
+                              }}
                             />
-                          ) : (
-                            <div className="asset-fallback">{item.symbol[0]}</div>
                           )}
 
-                          <div>
-                            <h4>{item.symbol}</h4>
-                            <p>Qty: {item.quantity.toFixed(4)}</p>
-                          </div>
+                          <span
+                            className="stock-list-fallback"
+                            style={{
+                              display: stock.logo ? "none" : "flex",
+                            }}
+                          >
+                            {stock.symbol.charAt(0)}
+                          </span>
                         </div>
 
-                        <div className="asset-price-v2">
-                          <strong>${item.marketValue.toFixed(2)}</strong>
-                          <p className={isProfit ? "profit-text" : "loss-text"}>
-                            {isProfit ? "+" : ""}${item.profitLoss.toFixed(2)}
-                          </p>
+                        <div>
+                          <strong>{stock.name}</strong>
+                          <p>{stock.symbol}</p>
                         </div>
+                      </Link>
 
-                   <div className="asset-return-v2">
-  <p className={isProfit ? "profit-text" : "loss-text"}>
-    {isProfit ? "+" : ""}
-    {item.profitLossPercent.toFixed(2)}%
-  </p>
-</div>
+                      <strong>
+                        {!stock.loaded ? "Loading..." : formatMoney(stock.price)}
+                      </strong>
 
-<div className="asset-menu-dots">⋮</div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      <span
+                        className={isPositive ? "profit-text" : "loss-text"}
+                      >
+                        {!stock.loaded
+                          ? "Loading..."
+                          : `${isPositive ? "↗" : "↘"} ${Number(
+                              stock.dayChangePercent
+                            ).toFixed(2)}%`}
+                      </span>
+
+                      <strong>
+                        {!stock.loaded
+                          ? "Loading..."
+                          : formatMoney(stock.previousClose)}
+                      </strong>
+
+                      <button
+                        className="stock-buy-link"
+                        onClick={() => handleBuyClick(stock.symbol)}
+                      >
+                        Buy
+                      </button>
+
+                      <button
+                        className={`stock-star-btn ${
+                          isWatched ? "active" : ""
+                        }`}
+                        onClick={() => toggleWatchlist(stock.symbol)}
+                        aria-label={
+                          isWatched
+                            ? `Remove ${stock.symbol} from watchlist`
+                            : `Add ${stock.symbol} to watchlist`
+                        }
+                      >
+                        <Star
+                          size={21}
+                          fill={isWatched ? "currentColor" : "none"}
+                        />
+                      </button>
+                    </div>
+                  );
+                })
               )}
+
+              {visibleCount < activeSymbols.length && (
+                <button
+                  className="browse-all-btn"
+                  onClick={handleBrowseMore}
+                  disabled={loading}
+                >
+                  {loading ? "Loading..." : "Browse more"}
+                </button>
+              )}
+            </div>
+
+            <div className="market-update-card">
+              <h2>Stock Market Update</h2>
+
+              <div className="market-update-stats">
+                <div>
+                  <p>Market</p>
+                  <h3>{marketStatus?.exchange || "US"}</h3>
+                </div>
+
+                <div>
+                  <p>Status</p>
+                  <h3>{marketStatus?.isOpen ? "Open" : "Closed"}</h3>
+                </div>
+
+                <div>
+                  <p>Watchlist</p>
+                  <h3>{watchlist.length} Stocks</h3>
+                </div>
+              </div>
+
+              <p>
+                Track major US stocks, view live quote data, and save stocks to
+                your personal watchlist using the star button.
+              </p>
             </div>
           </div>
 
-          <div className="portfolio-right">
-            <div className="current-market-card">
-              <h3>Current Market</h3>
+          <div className="trade-market-right">
+            <div className="quick-actions-card">
+              <h3>Market Mover</h3>
 
-              <div className="market-mini-row">
-                {enrichedHoldings.slice(0, 4).map((item) => {
-                  const isProfit = item.profitLoss >= 0;
+              {marketMover ? (
+                <div className="market-mover-content">
+                  {marketMover.logo ? (
+                    <img
+                      src={marketMover.logo}
+                      alt={marketMover.symbol}
+                      onError={(event) => {
+                        event.currentTarget.style.display = "none";
+                      }}
+                    />
+                  ) : (
+                    <span>{marketMover.symbol?.charAt(0)}</span>
+                  )}
 
-                  return (
-                    <div className="market-mini-card" key={item.symbol}>
-                      <h4>{item.symbol}</h4>
-                      <p className={isProfit ? "profit-text" : "loss-text"}>
-                        {isProfit ? "+" : ""}
-                        {item.profitLossPercent.toFixed(2)}%
-                      </p>
-                      <div>
-                        <button>Short</button>
-                        <button>Buy</button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                  <div>
+                    <strong>{marketMover.symbol}</strong>
+                    <p>{marketMover.name}</p>
+                  </div>
+
+                  <small
+                    className={
+                      Number(marketMover.dayChangePercent) >= 0
+                        ? "profit-text"
+                        : "loss-text"
+                    }
+                  >
+                    {Number(marketMover.dayChangePercent) >= 0 ? "+" : ""}
+                    {Number(marketMover.dayChangePercent || 0).toFixed(2)}%
+                  </small>
+                </div>
+              ) : (
+                <p>No mover data available.</p>
+              )}
             </div>
 
-            <div className="stock-watchlist-card-v2">
-              <div className="watchlist-title-v2">
-                <h3>Stock Watchlist</h3>
-              </div>
+            <div className="market-update-card">
+              <h2>Latest Market News</h2>
 
-              <div className="watchlist-total-row">
-                <p>
-                  Total Investments:{" "}
-                  <strong>${totalHoldingsValue.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}</strong>
-                </p>
-
-                <select>
-                  <option>All Stocks</option>
-                </select>
-              </div>
-
-              <div className="watchlist-tabs-v2">
-                <button>Day</button>
-                <button>Week</button>
-                <button>Month</button>
-                <button className="active">Year</button>
-                <button>All Time</button>
-              </div>
-
-              <ResponsiveContainer width="100%" height={360}>
-                <AreaChart data={chartData}>
-                  <defs>
-                    <linearGradient id="portfolioArea" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#6741BF" stopOpacity={0.35} />
-<stop offset="100%" stopColor="#6741BF" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                  <XAxis dataKey="name" stroke="#9f9f9f" />
-                  <YAxis stroke="#9f9f9f" />
-                  <Tooltip
-                    contentStyle={{
-                      background: "#111111",
-                      border: "1px solid #2f2f2f",
-                      borderRadius: "12px",
-                      color: "#ffffff",
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="value"
-                    stroke="#6741BF"
-                    fill="url(#portfolioArea)"
-                    strokeWidth={3}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              {marketNews.length === 0 ? (
+                <p>No market news available right now.</p>
+              ) : (
+                <div className="market-news-list">
+                  {marketNews.map((news) => (
+                    <a
+                      key={news.id || news.url}
+                      href={news.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="market-news-item"
+                    >
+                      <strong>{news.headline || "Market News"}</strong>
+                      <p>{news.summary || "Read more about this update."}</p>
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -411,4 +552,4 @@ function PortfolioPage() {
   );
 }
 
-export default PortfolioPage;
+export default TradePage;
