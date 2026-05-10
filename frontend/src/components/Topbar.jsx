@@ -25,8 +25,25 @@ function Topbar({ title = "Dashboard" }) {
   const [topLoading, setTopLoading] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   const [topStocks, setTopStocks] = useState([]);
+  const [profileImage, setProfileImage] = useState(
+    localStorage.getItem("profileImage")
+  );
 
   const hasQuery = query.trim().length > 0;
+
+  useEffect(() => {
+    const refreshProfileImage = () => {
+      setProfileImage(localStorage.getItem("profileImage"));
+    };
+
+    window.addEventListener("storage", refreshProfileImage);
+    window.addEventListener("profileImageUpdated", refreshProfileImage);
+
+    return () => {
+      window.removeEventListener("storage", refreshProfileImage);
+      window.removeEventListener("profileImageUpdated", refreshProfileImage);
+    };
+  }, []);
 
   const fetchLogo = async (symbol) => {
     try {
@@ -287,7 +304,15 @@ function Topbar({ title = "Dashboard" }) {
         </div>
 
         <div className="user-avatar">
-          {(user?.fullName || "U").charAt(0).toUpperCase()}
+          {profileImage ? (
+            <img
+              src={profileImage}
+              alt="Profile"
+              className="topbar-avatar-img"
+            />
+          ) : (
+            (user?.fullName || "U").charAt(0).toUpperCase()
+          )}
         </div>
       </div>
     </header>

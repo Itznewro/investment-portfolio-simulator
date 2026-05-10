@@ -12,8 +12,8 @@ const getUserSettings = async (req, res) => {
     if (settingsResult.rows.length === 0) {
       settingsResult = await pool.query(
         `INSERT INTO user_settings 
-         (user_id, default_trade_mode, risk_mode, price_alerts, market_news, portfolio_updates)
-         VALUES ($1, 'BUY', 'balanced', true, true, true)
+         (user_id, default_trade_mode, risk_mode, price_alerts, market_news, portfolio_updates, profile_image)
+         VALUES ($1, 'BUY', 'balanced', true, true, true, NULL)
          RETURNING *`,
         [userId]
       );
@@ -27,6 +27,7 @@ const getUserSettings = async (req, res) => {
       priceAlerts: settings.price_alerts,
       marketNews: settings.market_news,
       portfolioUpdates: settings.portfolio_updates,
+      profileImage: settings.profile_image || null,
     });
   } catch (error) {
     console.error("Get settings error:", error);
@@ -48,6 +49,7 @@ const updateUserSettings = async (req, res) => {
       priceAlerts,
       marketNews,
       portfolioUpdates,
+      profileImage,
     } = req.body;
 
     const allowedTradeModes = ["BUY", "SELL"];
@@ -63,8 +65,8 @@ const updateUserSettings = async (req, res) => {
 
     const updatedResult = await pool.query(
       `INSERT INTO user_settings 
-       (user_id, default_trade_mode, risk_mode, price_alerts, market_news, portfolio_updates)
-       VALUES ($1, $2, $3, $4, $5, $6)
+       (user_id, default_trade_mode, risk_mode, price_alerts, market_news, portfolio_updates, profile_image)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (user_id)
        DO UPDATE SET
          default_trade_mode = EXCLUDED.default_trade_mode,
@@ -72,6 +74,7 @@ const updateUserSettings = async (req, res) => {
          price_alerts = EXCLUDED.price_alerts,
          market_news = EXCLUDED.market_news,
          portfolio_updates = EXCLUDED.portfolio_updates,
+         profile_image = EXCLUDED.profile_image,
          updated_at = CURRENT_TIMESTAMP
        RETURNING *`,
       [
@@ -81,6 +84,7 @@ const updateUserSettings = async (req, res) => {
         Boolean(priceAlerts),
         Boolean(marketNews),
         Boolean(portfolioUpdates),
+        profileImage || null,
       ]
     );
 
@@ -94,6 +98,7 @@ const updateUserSettings = async (req, res) => {
         priceAlerts: settings.price_alerts,
         marketNews: settings.market_news,
         portfolioUpdates: settings.portfolio_updates,
+        profileImage: settings.profile_image || null,
       },
     });
   } catch (error) {

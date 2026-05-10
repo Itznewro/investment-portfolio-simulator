@@ -10,6 +10,8 @@ import {
   LogOut,
   TrendingUp,
   Palette,
+  ImagePlus,
+  Trash2,
 } from "lucide-react";
 import logo from "../assets/logo.png";
 import Topbar from "../components/Topbar";
@@ -20,8 +22,6 @@ function SettingsPage() {
   const token = localStorage.getItem("token");
   const navigate = useNavigate();
 
-  // Backend URL
-  // If your backend is running on another port, change this.
   const API_BASE = "http://localhost:5000";
 
   const defaultSettings = {
@@ -30,6 +30,7 @@ function SettingsPage() {
     marketNews: true,
     portfolioUpdates: true,
     riskMode: "balanced",
+    profileImage: null,
   };
 
   const [settings, setSettings] = useState(defaultSettings);
@@ -82,6 +83,7 @@ function SettingsPage() {
           if (response.status === 401) {
             localStorage.removeItem("user");
             localStorage.removeItem("token");
+            localStorage.removeItem("profileImage");
             navigate("/");
             return;
           }
@@ -90,13 +92,24 @@ function SettingsPage() {
           return;
         }
 
-        setSettings({
+        const loadedSettings = {
           defaultTradeMode: data.defaultTradeMode || "BUY",
           priceAlerts: data.priceAlerts ?? true,
           marketNews: data.marketNews ?? true,
           portfolioUpdates: data.portfolioUpdates ?? true,
           riskMode: data.riskMode || "balanced",
-        });
+          profileImage: data.profileImage || null,
+        };
+
+        setSettings(loadedSettings);
+
+        if (data.profileImage) {
+          localStorage.setItem("profileImage", data.profileImage);
+        } else {
+          localStorage.removeItem("profileImage");
+        }
+
+        window.dispatchEvent(new Event("profileImageUpdated"));
       } catch (error) {
         console.error("Settings fetch error:", error);
         showMessage(
@@ -115,6 +128,55 @@ function SettingsPage() {
       ...prev,
       [key]: value,
     }));
+  };
+
+  const handleProfileImageUpload = (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      showMessage("Please upload an image or GIF file.");
+      return;
+    }
+
+    const maxSizeMB = 2;
+    const maxSizeBytes = maxSizeMB * 1024 * 1024;
+
+    if (file.size > maxSizeBytes) {
+      showMessage(`Image is too large. Please upload under ${maxSizeMB}MB.`);
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onloadend = () => {
+      const imageDataUrl = reader.result;
+
+      setSettings((prev) => ({
+        ...prev,
+        profileImage: imageDataUrl,
+      }));
+
+      localStorage.setItem("profileImage", imageDataUrl);
+      window.dispatchEvent(new Event("profileImageUpdated"));
+
+      showMessage("Profile picture selected. Click Save Changes to store it.");
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveProfileImage = () => {
+    setSettings((prev) => ({
+      ...prev,
+      profileImage: null,
+    }));
+
+    localStorage.removeItem("profileImage");
+    window.dispatchEvent(new Event("profileImageUpdated"));
+
+    showMessage("Profile picture removed. Click Save Changes to update it.");
   };
 
   const handleSave = async () => {
@@ -142,6 +204,13 @@ function SettingsPage() {
         return;
       }
 
+      if (settings.profileImage) {
+        localStorage.setItem("profileImage", settings.profileImage);
+      } else {
+        localStorage.removeItem("profileImage");
+      }
+
+      window.dispatchEvent(new Event("profileImageUpdated"));
       showMessage("Settings saved successfully.");
     } catch (error) {
       console.error("Save settings error:", error);
@@ -159,6 +228,11 @@ function SettingsPage() {
       return;
     }
 
+    const resetSettings = {
+      ...defaultSettings,
+      profileImage: settings.profileImage,
+    };
+
     try {
       setSaving(true);
 
@@ -168,7 +242,7 @@ function SettingsPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(defaultSettings),
+        body: JSON.stringify(resetSettings),
       });
 
       const data = await readJsonSafely(response);
@@ -178,7 +252,7 @@ function SettingsPage() {
         return;
       }
 
-      setSettings(defaultSettings);
+      setSettings(resetSettings);
       showMessage("Settings reset to default.");
     } catch (error) {
       console.error("Reset settings error:", error);
@@ -203,8 +277,8 @@ function SettingsPage() {
     } finally {
       localStorage.removeItem("user");
       localStorage.removeItem("token");
-
-      // Sends user back to Landing Page
+      localStorage.removeItem("profileImage");
+      window.dispatchEvent(new Event("profileImageUpdated"));
       navigate("/");
     }
   };
@@ -287,46 +361,87 @@ function SettingsPage() {
         {savedMessage && <p className="settings-saved-msg">{savedMessage}</p>}
 
         {loadingSettings ? (
-  <section className="settings-card">
-    <Loader size="medium" />
-  </section>
-) : (
+          <section className="settings-card">
+            <Loader size="medium" />
+          </section>
+        ) : (
           <section className="settings-grid">
             <div className="settings-left">
-              <div className="settings-card profile-card">
-                <div className="settings-card-title">
-                  <User size={20} />
-                  <h3>Profile</h3>
-                </div>
+             <div className="settings-card profile-card">
+  <div className="settings-card-title">
+    <User size={20} />
+    <h3>Profile</h3>
+  </div>
 
-                <div className="profile-row">
-                  <div className="profile-avatar-large">
-                    {(user?.fullName || "U").charAt(0).toUpperCase()}
-                  </div>
+  <div className="profile-row profile-row-modern">
+    <label
+      className="profile-avatar-upload"
+      title={settings.profileImage ? "Update profile picture" : "Add profile picture"}
+    >
+      <input
+        type="file"
+        accept="image/*,.gif"
+        onChange={handleProfileImageUpload}
+        hidden
+      />
 
-                  <div>
-                    <h2>{user?.fullName || "User"}</h2>
-                    <p>{user?.email || "student@example.com"}</p>
-                  </div>
-                </div>
+      <div className="profile-avatar-large profile-picture-preview">
+        {settings.profileImage ? (
+          <img
+            src={settings.profileImage}
+            alt="Profile"
+            className="profile-picture-img"
+          />
+        ) : (
+          (user?.fullName || "U").charAt(0).toUpperCase()
+        )}
+      </div>
 
-                <div className="settings-form-grid">
-                  <label>
-                    Full Name
-                    <input value={user?.fullName || ""} readOnly />
-                  </label>
+      <div className="profile-avatar-overlay">
+        <ImagePlus size={18} />
+        <span>{settings.profileImage ? "Update PFP" : "Add PFP"}</span>
+      </div>
+    </label>
 
-                  <label>
-                    Email Address
-                    <input value={user?.email || ""} readOnly />
-                  </label>
-                </div>
+    <div className="profile-info-modern">
+      <h2>{user?.fullName || "User"}</h2>
+      <p>{user?.email || "student@example.com"}</p>
 
-                <p className="settings-note">
-                  Profile details are connected to your registered simulator
-                  account.
-                </p>
-              </div>
+      {settings.profileImage && (
+  <div className="profile-mini-actions">
+    <button
+      type="button"
+      className="profile-remove-btn"
+      onClick={handleRemoveProfileImage}
+    >
+      <Trash2 size={15} />
+      Remove Avatar
+    </button>
+  </div>
+)}
+
+      <p className="profile-upload-hint">
+        Click the avatar to add or update your profile picture.
+      </p>
+    </div>
+  </div>
+
+  <div className="settings-form-grid">
+    <label>
+      Full Name
+      <input value={user?.fullName || ""} readOnly />
+    </label>
+
+    <label>
+      Email Address
+      <input value={user?.email || ""} readOnly />
+    </label>
+  </div>
+
+  <p className="settings-note">
+    Animated GIFs will move wherever your profile picture appears.
+  </p>
+</div>
 
               <div className="settings-card">
                 <div className="settings-card-title">
