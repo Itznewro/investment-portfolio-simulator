@@ -13,7 +13,21 @@ const settingsRoutes = require("./routes/settingsRoutes");
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+
+// Increase JSON size limit so profile pictures / GIFs can be saved as base64
+app.use(express.json({ limit: "5mb" }));
+app.use(express.urlencoded({ limit: "5mb", extended: true }));
+
+// Cleaner error response instead of ugly HTML error on frontend
+app.use((err, req, res, next) => {
+  if (err.type === "entity.too.large") {
+    return res.status(413).json({
+      message: "File is too large. Please upload an image under 2MB.",
+    });
+  }
+
+  next(err);
+});
 
 app.get("/", (req, res) => {
   res.send("Backend API is running");

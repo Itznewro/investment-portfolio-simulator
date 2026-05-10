@@ -35,16 +35,22 @@ function SettingsPage() {
 
   const [settings, setSettings] = useState(defaultSettings);
   const [savedMessage, setSavedMessage] = useState("");
+  const [messageType, setMessageType] = useState("success");
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const showMessage = (message) => {
-    setSavedMessage(message);
+  const showMessage = (message, type = "success") => {
+  setSavedMessage("");
+  setMessageType(type);
 
-    setTimeout(() => {
-      setSavedMessage("");
-    }, 3000);
-  };
+  setTimeout(() => {
+    setSavedMessage(message);
+  }, 20);
+
+  setTimeout(() => {
+    setSavedMessage("");
+  }, 3400);
+};
 
   const readJsonSafely = async (response) => {
     const text = await response.text();
@@ -88,7 +94,7 @@ function SettingsPage() {
             return;
           }
 
-          showMessage(data.message || "Could not load settings from server.");
+          showMessage(data.message || "Could not load settings from server.", "error");
           return;
         }
 
@@ -113,7 +119,8 @@ function SettingsPage() {
       } catch (error) {
         console.error("Settings fetch error:", error);
         showMessage(
-          "Could not connect to server. Make sure backend is running on port 5000."
+          "Could not connect to server. Make sure backend is running on port 5000.", 
+          "error"
         );
       } finally {
         setLoadingSettings(false);
@@ -144,7 +151,7 @@ function SettingsPage() {
     const maxSizeBytes = maxSizeMB * 1024 * 1024;
 
     if (file.size > maxSizeBytes) {
-      showMessage(`Image is too large. Please upload under ${maxSizeMB}MB.`);
+      showMessage(`Image is too large. Please upload under ${maxSizeMB}MB.`, "error");
       return;
     }
 
@@ -200,7 +207,7 @@ function SettingsPage() {
       const data = await readJsonSafely(response);
 
       if (!response.ok) {
-        showMessage(data.message || "Failed to save settings.");
+        showMessage(data.message || "Failed to save settings.", "error");
         return;
       }
 
@@ -215,7 +222,7 @@ function SettingsPage() {
     } catch (error) {
       console.error("Save settings error:", error);
       showMessage(
-        "Could not connect to server. Make sure backend is running on port 5000."
+        "Could not connect to server. Make sure backend is running on port 5000.", "error"
       );
     } finally {
       setSaving(false);
@@ -358,7 +365,12 @@ function SettingsPage() {
           </div>
         </section>
 
-        {savedMessage && <p className="settings-saved-msg">{savedMessage}</p>}
+       {savedMessage && (
+  <div className={`settings-toast ${messageType}`}>
+    <span className="settings-toast-dot"></span>
+    <p>{savedMessage}</p>
+  </div>
+)}
 
         {loadingSettings ? (
           <section className="settings-card">
