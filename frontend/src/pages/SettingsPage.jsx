@@ -67,7 +67,7 @@ function SettingsPage() {
   useEffect(() => {
     const fetchSettings = async () => {
       if (!token) {
-        navigate("/");
+        navigate("/login");
         return;
       }
 
@@ -90,7 +90,7 @@ function SettingsPage() {
             localStorage.removeItem("user");
             localStorage.removeItem("token");
             localStorage.removeItem("profileImage");
-            navigate("/");
+            navigate("/login");
             return;
           }
 
@@ -188,7 +188,7 @@ function SettingsPage() {
 
   const handleSave = async () => {
     if (!token) {
-      navigate("/");
+      navigate("/login");
       return;
     }
 
@@ -231,7 +231,7 @@ function SettingsPage() {
 
   const handleReset = async () => {
     if (!token) {
-      navigate("/");
+      navigate("/login");
       return;
     }
 
@@ -636,6 +636,27 @@ function SettingsPage() {
                     </div>
 
                     <span className="security-badge success">Verified</span>
+                  </div>
+
+                  <div className="security-status-item">
+                    <div className="security-status-left">
+                      <span
+                        className={
+                          user?.mfaEnabled ? "status-green-dot" : "status-purple-dot"
+                        }
+                      ></span>
+
+                      <div>
+                        <h4>Authenticator App MFA</h4>
+                        <p>
+                          Require a rotating 6-digit authenticator code during login.
+                        </p>
+                      </div>
+                    </div>
+
+                    <Link className="security-action-btn" to="/mfa/setup">
+                      {user?.mfaEnabled ? "Manage" : "Set Up"}
+                    </Link>
                   </div>
                 </div>
               </div>

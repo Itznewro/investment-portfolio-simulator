@@ -1,5 +1,6 @@
-import { Link, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useRef, useState } from "react";
+import ReCAPTCHA from "react-google-recaptcha";
 import {
   Mail,
   Lock,
@@ -15,6 +16,11 @@ import "../App.css";
 
 function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromPath = location.state?.from?.pathname || "/dashboard";
+  const recaptchaRef = useRef(null);
+  const recaptchaEnabled = import.meta.env.VITE_RECAPTCHA_ENABLED === "true";
+  const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 
   const [formData, setFormData] = useState({
     email: "",
@@ -22,9 +28,10 @@ function LoginPage() {
   });
 
   const [showPassword, setShowPassword] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(location.state?.message || "");
 
   const handleChange = (e) => {
     setFormData({
@@ -43,6 +50,11 @@ function LoginPage() {
       return;
     }
 
+    if (recaptchaEnabled && !captchaToken) {
+  setError("Please complete the CAPTCHA challenge.");
+  return;
+      }
+
     try {
       setIsSubmitting(true);
 
@@ -52,18 +64,53 @@ function LoginPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: formData.email,
-          password: formData.password,
-        }),
+  email: formData.email,
+  password: formData.password,
+  captchaToken: recaptchaEnabled ? captchaToken : null,
+}),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
         setError(data.message || "Login failed.");
+        recaptchaRef.current?.reset();
+        setCaptchaToken("");
         setIsSubmitting(false);
         return;
       }
+
+      if (data.otpRequired) {
+        const otpState = {
+          email: data.email || formData.email,
+          purpose: data.purpose || "login",
+          challengeToken: data.challengeToken,
+          fromPath,
+          mfaRequired: Boolean(data.mfaRequired),
+        };
+
+        sessionStorage.setItem("pendingOtp", JSON.stringify(otpState));
+        setMessage(data.message || "Verification code sent.");
+
+        navigate(
+          `/verify-otp?email=${encodeURIComponent(otpState.email)}&purpose=${otpState.purpose}`,
+          { state: otpState }
+        );
+        return;
+      }
+
+      if (data.mfaRequired && data.mfaToken) {
+  const mfaState = {
+    email: data.email || formData.email,
+    mfaToken: data.mfaToken,
+    fromPath,
+  };
+
+  sessionStorage.setItem("pendingMfa", JSON.stringify(mfaState));
+
+  navigate("/verify-mfa", { state: mfaState });
+  return;
+}
 
       localStorage.setItem("token", data.token);
       localStorage.setItem("user", JSON.stringify(data.user));
@@ -71,10 +118,12 @@ function LoginPage() {
       setMessage("Login successful! Redirecting...");
 
       setTimeout(() => {
-        navigate("/dashboard");
+        navigate(fromPath, { replace: true });
       }, 900);
-    } catch (err) {
+    } catch {
       setError("Could not connect to server.");
+      recaptchaRef.current?.reset();
+      setCaptchaToken("");
       setIsSubmitting(false);
     }
   };
@@ -151,7 +200,31 @@ function LoginPage() {
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
+
+              <div className="login-field-footer">
+                <Link to="/forgot-password" className="forgot-password-link">
+                  Forgot password?
+                </Link>
+              </div>
             </div>
+
+            {recaptchaEnabled && (
+  <div className="captcha-wrap">
+    {recaptchaSiteKey ? (
+      <ReCAPTCHA
+        ref={recaptchaRef}
+        sitekey={recaptchaSiteKey}
+        theme="dark"
+        onChange={(token) => setCaptchaToken(token || "")}
+        onExpired={() => setCaptchaToken("")}
+      />
+    ) : (
+      <p className="captcha-missing">
+        CAPTCHA is enabled but the site key is missing.
+      </p>
+    )}
+  </div>
+)}
 
             {error && <p className="login-error">{error}</p>}
             {message && <p className="login-success">{message}</p>}

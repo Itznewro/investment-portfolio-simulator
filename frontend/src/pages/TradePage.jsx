@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Star, SlidersHorizontal } from "lucide-react";
 import logo from "../assets/logo.png";
@@ -141,9 +141,11 @@ async function fetchOneStock(symbol) {
 
 function TradePage() {
   const user = JSON.parse(localStorage.getItem("user"));
+  const userId = user?.id;
 
   const [portfolioData, setPortfolioData] = useState(null);
   const [stocksBySymbol, setStocksBySymbol] = useState({});
+  const stocksBySymbolRef = useRef(stocksBySymbol);
   const [activeTab, setActiveTab] = useState("TOP");
   const [visibleCount, setVisibleCount] = useState(5);
   const [loadingStocks, setLoadingStocks] = useState(false);
@@ -151,7 +153,7 @@ function TradePage() {
   const [marketNews, setMarketNews] = useState([]);
   const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
 
-  const watchlistKey = getWatchlistKey(user?.id);
+  const watchlistKey = getWatchlistKey(userId);
   const [savedWatchlist, setSavedWatchlist] = useState(() =>
     loadSavedWatchlist(watchlistKey)
   );
@@ -161,24 +163,34 @@ function TradePage() {
     : 0;
 
   const refreshPortfolio = async () => {
-    if (!user?.id) return;
+    if (!userId) return;
 
-    const response = await fetch(`/api/portfolio/${user.id}`);
+    const response = await fetch(`/api/portfolio/${userId}`);
     const data = await response.json();
     setPortfolioData(data);
   };
 
   useEffect(() => {
-    if (user?.id) refreshPortfolio();
-  }, [user?.id]);
+    const fetchPortfolio = async () => {
+      if (!userId) return;
+
+      const response = await fetch(`/api/portfolio/${userId}`);
+      const data = await response.json();
+      setPortfolioData(data);
+    };
+
+    fetchPortfolio();
+  }, [userId]);
 
   useEffect(() => {
-    setSavedWatchlist(loadSavedWatchlist(watchlistKey));
+    queueMicrotask(() => {
+      setSavedWatchlist(loadSavedWatchlist(watchlistKey));
+    });
   }, [watchlistKey]);
 
   useEffect(() => {
-    setVisibleCount(5);
-  }, [activeTab, showWatchlistOnly]);
+    stocksBySymbolRef.current = stocksBySymbol;
+  }, [stocksBySymbol]);
 
   const activeSymbols = useMemo(() => {
     if (showWatchlistOnly) {
@@ -196,10 +208,11 @@ function TradePage() {
 
   useEffect(() => {
     let cancelled = false;
+    const visibleSymbols = symbolsToShowKey ? symbolsToShowKey.split("|") : [];
 
     const loadVisibleStocks = async () => {
-      const missingSymbols = symbolsToShow.filter(
-        (symbol) => !stocksBySymbol[symbol]?.loaded
+      const missingSymbols = visibleSymbols.filter(
+        (symbol) => !stocksBySymbolRef.current[symbol]?.loaded
       );
 
       if (missingSymbols.length === 0) return;
@@ -212,10 +225,15 @@ function TradePage() {
 
           if (cancelled) return;
 
-          setStocksBySymbol((prev) => ({
-            ...prev,
-            [symbol]: stock,
-          }));
+          setStocksBySymbol((prev) => {
+            const next = {
+              ...prev,
+              [symbol]: stock,
+            };
+
+            stocksBySymbolRef.current = next;
+            return next;
+          });
 
           await delay(120);
         }
@@ -309,6 +327,18 @@ function TradePage() {
     });
   };
 
+  const toggleWatchlistOnly = () => {
+    setShowWatchlistOnly((prev) => !prev);
+    setVisibleCount(5);
+  };
+
+  const selectTab = (nextTab) => {
+    if (activeTab === nextTab) return;
+
+    setActiveTab(nextTab);
+    setVisibleCount(5);
+  };
+
   const canBrowseMore = visibleCount < activeSymbols.length;
 
   return (
@@ -349,7 +379,7 @@ function TradePage() {
               <div className="trade-filter-tabs">
                 <button
                   className={`filter-icon-btn ${showWatchlistOnly ? "active" : ""}`}
-                  onClick={() => setShowWatchlistOnly((prev) => !prev)}
+                  onClick={toggleWatchlistOnly}
                   title="Show watchlist only"
                 >
                   <SlidersHorizontal size={18} />
@@ -357,21 +387,21 @@ function TradePage() {
 
                 <button
                   className={activeTab === "TOP" ? "active" : ""}
-                  onClick={() => setActiveTab("TOP")}
+                  onClick={() => selectTab("TOP")}
                 >
                   Top Stocks
                 </button>
 
                 <button
                   className={activeTab === "GAINERS" ? "active" : ""}
-                  onClick={() => setActiveTab("GAINERS")}
+                  onClick={() => selectTab("GAINERS")}
                 >
                   Top Gainers
                 </button>
 
                 <button
                   className={activeTab === "MOVERS" ? "active" : ""}
-                  onClick={() => setActiveTab("MOVERS")}
+                  onClick={() => selectTab("MOVERS")}
                 >
                   Market Movers
                 </button>

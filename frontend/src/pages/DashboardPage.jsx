@@ -5,6 +5,7 @@ import Topbar from "../components/Topbar";
 import TradeCard from "../components/TradeCard";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import Loader from "../components/Loader";
 
 const DEFAULT_WATCHLIST_SYMBOLS = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN"];
 
@@ -23,7 +24,7 @@ function normaliseWatchlistValue(value) {
         .filter(Boolean);
     }
   } catch {
-    // If it is not JSON, treat it like a comma separated list: AAPL,TSLA,NVDA
+    // Fall back to comma-separated watchlist values.
   }
 
   return String(value)
@@ -78,6 +79,7 @@ function DashboardPage() {
 
   const [holdingPrices, setHoldingPrices] = useState({});
   const [holdingsValueLoading, setHoldingsValueLoading] = useState(false);
+  const [holdingPricesLoaded, setHoldingPricesLoaded] = useState(false);
 
   const [dashboardWatchlistSymbols, setDashboardWatchlistSymbols] = useState(() =>
     getSavedWatchlistSymbols(user?.id)
@@ -91,7 +93,7 @@ function DashboardPage() {
   const [hoveredChartPoint, setHoveredChartPoint] = useState(null);
   const [chartRefreshKey, setChartRefreshKey] = useState(0);
 
-  const holdings = portfolioData?.holdings || [];
+  const holdings = useMemo(() => portfolioData?.holdings || [], [portfolioData]);
   const cashBalance = portfolioData?.portfolio?.cashBalance
     ? Number(portfolioData.portfolio.cashBalance)
     : 0;
@@ -220,34 +222,42 @@ function DashboardPage() {
   }, [user?.id]);
 
   useEffect(() => {
-    const fetchHoldingPrices = async () => {
-      if (!holdings.length) {
-        setHoldingPrices({});
-        return;
-      }
+  const fetchHoldingPrices = async () => {
+    setHoldingPricesLoaded(false);
 
-      try {
-        setHoldingsValueLoading(true);
+    if (!portfolioData) {
+      return;
+    }
 
-        const priceEntries = await Promise.all(
-          holdings.map(async (holding) => {
-            const symbol = holding.stock_symbol;
-            const response = await fetch(`/api/stocks/quote/${symbol}`);
-            const data = await response.json();
-            return [symbol, Number(data.c) || 0];
-          })
-        );
+    if (!holdings.length) {
+      setHoldingPrices({});
+      setHoldingPricesLoaded(true);
+      return;
+    }
 
-        setHoldingPrices(Object.fromEntries(priceEntries));
-      } catch (error) {
-        console.error("Error fetching holding prices:", error);
-      } finally {
-        setHoldingsValueLoading(false);
-      }
-    };
+    try {
+      setHoldingsValueLoading(true);
 
-    fetchHoldingPrices();
-  }, [portfolioData]);
+      const priceEntries = await Promise.all(
+        holdings.map(async (holding) => {
+          const symbol = holding.stock_symbol;
+          const response = await fetch(`/api/stocks/quote/${symbol}`);
+          const data = await response.json();
+          return [symbol, Number(data.c) || 0];
+        })
+      );
+
+      setHoldingPrices(Object.fromEntries(priceEntries));
+    } catch (error) {
+      console.error("Error fetching holding prices:", error);
+    } finally {
+      setHoldingsValueLoading(false);
+      setHoldingPricesLoaded(true);
+    }
+  };
+
+  fetchHoldingPrices();
+}, [holdings, portfolioData]);
 
   const refreshPortfolio = async () => {
     const refreshed = await fetch(`/api/portfolio/${user.id}`);
@@ -276,20 +286,38 @@ function DashboardPage() {
     : 0;
 
   const marketMood = useMemo(() => {
-    const positiveCount = watchlistData.filter(
-      (stock) => stock.percentChange >= 0
-    ).length;
+  const positiveCount = watchlistData.filter(
+    (stock) => stock.percentChange >= 0
+  ).length;
 
-    if (watchlistLoading) return "Loading";
-    if (watchlistData.length === 0) return "Empty";
+  if (watchlistLoading) return "Loading";
+  if (watchlistData.length === 0) return "Empty";
 
-    return positiveCount >= Math.ceil(watchlistData.length / 2)
-      ? "Positive"
-      : "Mixed";
-  }, [watchlistData, watchlistLoading]);
+  return positiveCount >= Math.ceil(watchlistData.length / 2)
+    ? "Positive"
+    : "Mixed";
+}, [watchlistData, watchlistLoading]);
 
+const pageLoading =
+  loading ||
+  !portfolioData ||
+  watchlistLoading ||
+  economicLoading ||
+  holdingsValueLoading ||
+  !holdingPricesLoaded;
+
+if (pageLoading) {
   return (
-    <div className="dashboard-page">
+    <Loader
+      fullScreen
+      size="large"
+      message="Loading your portfolio, live prices, and market data..."
+    />
+  );
+}
+
+return (
+  <div className="dashboard-page">
       <aside className="sidebar">
         <div className="sidebar-logo">
           <img src={logo} alt="logo" className="logo-img" />

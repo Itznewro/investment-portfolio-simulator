@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import logo from "../assets/logo.png";
 import Topbar from "../components/Topbar";
@@ -10,6 +10,7 @@ import "../App.css";
 function StockDetailPage() {
   const { symbol } = useParams();
   const user = JSON.parse(localStorage.getItem("user"));
+  const userId = user?.id;
 
   const [portfolioData, setPortfolioData] = useState(null);
   const [quote, setQuote] = useState(null);
@@ -26,17 +27,19 @@ function StockDetailPage() {
     (item) => item.stock_symbol === symbol?.toUpperCase()
   );
 
-  const portfolioValue = cashBalance;
+  const refreshPortfolio = useCallback(async () => {
+    if (!userId) return;
 
-  const refreshPortfolio = async () => {
-    if (!user?.id) return;
-
-    const response = await fetch(`/api/portfolio/${user.id}`);
+    const response = await fetch(`/api/portfolio/${userId}`);
     const data = await response.json();
     setPortfolioData(data);
-  };
+  }, [userId]);
 
   useEffect(() => {
+    const fetchPortfolio = async () => {
+      await refreshPortfolio();
+    };
+
     const fetchStockData = async () => {
       try {
         const quoteRes = await fetch(`/api/stocks/quote/${symbol}`);
@@ -51,9 +54,9 @@ function StockDetailPage() {
       }
     };
 
-    refreshPortfolio();
+    fetchPortfolio();
     fetchStockData();
-  }, [symbol, user?.id]);
+  }, [refreshPortfolio, symbol]);
 
   const [recommendedStocks, setRecommendedStocks] = useState([]);
 

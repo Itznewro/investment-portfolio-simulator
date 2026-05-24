@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import ReCAPTCHA from "react-google-recaptcha";
 import {
   UserRound,
   Mail,
@@ -16,6 +17,8 @@ import "../App.css";
 
 function RegisterPage() {
   const navigate = useNavigate();
+  const recaptchaRef = useRef(null);
+  const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 
   const [formData, setFormData] = useState({
     fullName: "",
@@ -26,6 +29,7 @@ function RegisterPage() {
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [message, setMessage] = useState("");
@@ -63,6 +67,11 @@ function RegisterPage() {
       return;
     }
 
+    if (recaptchaSiteKey && !captchaToken) {
+      setError("Please complete the CAPTCHA challenge.");
+      return;
+    }
+
     try {
       setIsSubmitting(true);
 
@@ -75,6 +84,7 @@ function RegisterPage() {
           fullName: formData.fullName,
           email: formData.email,
           password: formData.password,
+          captchaToken,
         }),
       });
 
@@ -82,17 +92,29 @@ function RegisterPage() {
 
       if (!response.ok) {
         setError(data.message || "Registration failed.");
+        recaptchaRef.current?.reset();
+        setCaptchaToken("");
         setIsSubmitting(false);
         return;
       }
 
-      setMessage("Account created successfully! Redirecting to login...");
+      const otpState = {
+        email: data.email || formData.email,
+        purpose: data.purpose || "register",
+        challengeToken: data.challengeToken,
+      };
 
-      setTimeout(() => {
-        navigate("/login");
-      }, 1200);
-    } catch (err) {
+      sessionStorage.setItem("pendingOtp", JSON.stringify(otpState));
+      setMessage(data.message || "Verification code sent.");
+
+      navigate(
+        `/verify-otp?email=${encodeURIComponent(otpState.email)}&purpose=${otpState.purpose}`,
+        { state: otpState }
+      );
+    } catch {
       setError("Could not connect to server.");
+      recaptchaRef.current?.reset();
+      setCaptchaToken("");
       setIsSubmitting(false);
     }
   };
@@ -222,6 +244,22 @@ function RegisterPage() {
                   {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
+            </div>
+
+            <div className="captcha-wrap">
+              {recaptchaSiteKey ? (
+                <ReCAPTCHA
+                  ref={recaptchaRef}
+                  sitekey={recaptchaSiteKey}
+                  theme="dark"
+                  onChange={(token) => setCaptchaToken(token || "")}
+                  onExpired={() => setCaptchaToken("")}
+                />
+              ) : (
+                <p className="captcha-missing">
+                  CAPTCHA site key missing. Backend verification will decide this request.
+                </p>
+              )}
             </div>
 
             {error && <p className="login-error">{error}</p>}

@@ -1,5 +1,13 @@
 import { useMemo, useState } from "react";
 
+function getOrderBookAmount(lastPrice, spread, index, side) {
+  const sideOffset = side === "ask" ? 17 : 31;
+  const seed = Math.sin(lastPrice * 12.9898 + spread * 78.233 + index * sideOffset);
+  const fraction = seed - Math.floor(seed);
+
+  return Number((fraction * 8 + 0.2).toFixed(4));
+}
+
 function OrderBook({ quote }) {
   const [spreadLevel, setSpreadLevel] = useState("0.01");
 
@@ -11,7 +19,7 @@ function OrderBook({ quote }) {
 
     const asks = Array.from({ length: 7 }, (_, index) => {
       const price = lastPrice + spread * (index + 1);
-      const amount = Number((Math.random() * 8 + 0.2).toFixed(4));
+      const amount = getOrderBookAmount(lastPrice, spread, index, "ask");
       return {
         price,
         amount,
@@ -21,7 +29,7 @@ function OrderBook({ quote }) {
 
     const bids = Array.from({ length: 7 }, (_, index) => {
       const price = lastPrice - spread * (index + 1);
-      const amount = Number((Math.random() * 8 + 0.2).toFixed(4));
+      const amount = getOrderBookAmount(lastPrice, spread, index, "bid");
       return {
         price,
         amount,
@@ -30,7 +38,7 @@ function OrderBook({ quote }) {
     });
 
     return { asks, bids };
-  }, [lastPrice, spreadLevel]);
+  }, [lastPrice, spread]);
 
   return (
     <div className="orderbook-card">
